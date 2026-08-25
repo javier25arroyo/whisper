@@ -1,0 +1,54 @@
+# ============================================================
+# docker-compose.yml — OpenAI Whisper
+# ============================================================
+# Usage examples:
+#   Transcribe a file:
+#     docker compose run --rm whisper /data/audio.mp3 --model turbo
+#
+#   With language detection:
+#     docker compose run --rm whisper /data/audio.mp3 --language Spanish
+#
+#   Translate to English:
+#     docker compose run --rm whisper /data/audio.mp3 --model medium --task translate
+# ============================================================
+
+services:
+  whisper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PYTHON_VERSION: "3.11"
+        WHISPER_MODEL: "turbo"    # Model pre-downloaded at build time
+    image: openai-whisper:cuda
+    container_name: whisper
+
+    # ── GPU access ──────────────────────────────────────────────
+    # Requires NVIDIA Container Toolkit on the host:
+    #   https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1            # Use 1 GPU; set to "all" for all GPUs
+              capabilities: [gpu]
+
+    # ── Volumes ─────────────────────────────────────────────────
+    # Place your audio files in ./data on the host.
+    # They will be accessible as /data inside the container.
+    volumes:
+      - ./data:/data
+      # Cache Whisper model weights between runs (avoids re-download)
+      - whisper_cache:/root/.cache/whisper
+
+    # ── Default command (override via `docker compose run`) ─────
+    command: ["--help"]
+
+    # ── Environment ─────────────────────────────────────────────
+    environment:
+      - CUDA_VISIBLE_DEVICES=0   # Which GPU to use (0-indexed)
+
+volumes:
+  whisper_cache:
+    name: whisper_model_cache
