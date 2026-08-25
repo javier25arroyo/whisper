@@ -1,0 +1,16 @@
+{
+  "branch-guard": {
+    "PreToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -File ./scripts/check-branch.ps1",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
