@@ -2,11 +2,16 @@
   "name": "es-ja-translator",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
+  "imports": {
+    "#lib/*": "./src/lib/*.ts"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "node tests/api-mock.test.mjs"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",

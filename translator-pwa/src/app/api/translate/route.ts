@@ -1,33 +1,10 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server.js";
+import {
+  translateAudioWithGemini,
+  type TranslationResult,
+} from "#lib/translator";
 
 export const maxDuration = 30;
-
-const PROMPTS: Record<string, string> = {
-  auto: `Escucha este audio con atención.
-1. Transcribe exactamente lo que se dijo.
-2. Detecta si el idioma es Español o Japonés.
-3. Traduce al idioma contrario (Español→Japonés o Japonés→Español).
-
-Responde ÚNICAMENTE con JSON válido, sin markdown, sin explicaciones:
-{"detected_language":"es","original_text":"...","translation":"..."}
-
-Si el idioma detectado es japonés, usa "ja" en detected_language.`,
-
-  "es-ja": `Escucha este audio en Español.
-1. Transcribe exactamente lo que se dijo en español.
-2. Tradúcelo al Japonés de forma natural.
-
-Responde ÚNICAMENTE con JSON válido:
-{"detected_language":"es","original_text":"...","translation":"..."}`,
-
-  "ja-es": `このオーディオを日本語で聞いてください。
-1. 話された内容を正確に文字起こしをしてください。
-2. スペイン語に自然に翻訳してください。
-
-有効なJSONのみで返答してください:
-{"detected_language":"ja","original_text":"...","translation":"..."}`,
-};
 
 export async function POST(req: NextRequest) {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -36,71 +13,61 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const formData = await req.formData();
+    let formData: FormData;
+    try {
+      formData = await req.formData();
+    } catch {
+      return NextResponse.json(
+        { error: "Formato de petición inválido (se esperaba multipart/form-data)" },
+        { status: 400 }
+      );
+    }
+
     const audioFile = formData.get("audio") as File | null;
     const direction = (formData.get("direction") as string) || "auto";
 
-    if (!audioFile || audioFile.size === 0) {
+    if (!audioFile || typeof audioFile.size !== "number" || audioFile.size === 0) {
       return NextResponse.json({ error: "No se recibió audio" }, { status: 400 });
     }
 
     // Limitar a 15MB
     if (audioFile.size > 15 * 1024 * 1024) {
-      return NextResponse.json({ error: "Audio demasiado largo. Graba menos de 30 segundos." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Audio demasiado largo. Graba menos de 30 segundos." },
+        { status: 400 }
+      );
     }
 
     const bytes = await audioFile.arrayBuffer();
     const base64Audio = Buffer.from(bytes).toString("base64");
 
-    // Detectar el MIME type correcto
-    let mimeType = audioFile.type || "audio/webm";
-    // iOS Safari graba en audio/mp4
-    if (!mimeType || mimeType === "application/octet-stream") {
-      mimeType = "audio/mp4";
-    }
-    // Normalizar variantes
-    if (mimeType.includes("webm")) mimeType = "audio/webm";
-    if (mimeType.includes("mp4") || mimeType.includes("m4a")) mimeType = "audio/mp4";
-    if (mimeType.includes("ogg")) mimeType = "audio/ogg";
+    let translationResult: TranslationResult;
+    try {
+      translationResult = await translateAudioWithGemini({
+        apiKey,
+        audioBase64: base64Audio,
+        mimeType: audioFile.type,
+        direction,
+      });
+    } catch (translateErr) {
+      const msg = translateErr instanceof Error ? translateErr.message : "Error al procesar audio con Gemini";
+      console.error("Error en llamada a Gemini / traducción:", translateErr);
 
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+      if (
+        msg.includes("JSON") ||
+        msg.includes("incompleta") ||
+        msg.includes("bloque JSON") ||
+        msg.includes("vacía")
+      ) {
+        return NextResponse.json({ error: msg }, { status: 422 });
+      }
 
-    const prompt = PROMPTS[direction] || PROMPTS["auto"];
-
-    const result = await model.generateContent([
-      {
-        inlineData: {
-          mimeType: mimeType as "audio/webm" | "audio/mp4" | "audio/ogg",
-          data: base64Audio,
-        },
-      },
-      { text: prompt },
-    ]);
-
-    const responseText = result.response.text().trim();
-
-    // Extraer JSON de la respuesta (por si Gemini agrega texto extra)
-    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      console.error("Respuesta de Gemini:", responseText);
-      return NextResponse.json({ error: "No se pudo procesar el audio. Intenta de nuevo." }, { status: 422 });
+      return NextResponse.json({ error: `Error al procesar: ${msg}` }, { status: 500 });
     }
 
-    const parsed = JSON.parse(jsonMatch[0]);
-
-    // Validar campos requeridos
-    if (!parsed.original_text || !parsed.translation) {
-      return NextResponse.json({ error: "Respuesta incompleta. Habla más claro e intenta de nuevo." }, { status: 422 });
-    }
-
-    return NextResponse.json({
-      detected_language: parsed.detected_language || "es",
-      original_text: parsed.original_text,
-      translation: parsed.translation,
-    });
+    return NextResponse.json(translationResult, { status: 200 });
   } catch (err) {
-    console.error("Error en /api/translate:", err);
+    console.error("Error inesperado en /api/translate:", err);
     const message = err instanceof Error ? err.message : "Error desconocido";
     return NextResponse.json({ error: `Error al procesar: ${message}` }, { status: 500 });
   }
