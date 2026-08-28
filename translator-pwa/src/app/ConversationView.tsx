@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ConversationState } from "#lib/conversationMachine";
 import type { HistoryItemV2 } from "#lib/history";
 import type { SupportedLanguage } from "#lib/translator";
@@ -15,20 +15,39 @@ interface ConversationViewProps {
   history: HistoryItemV2[];
   turnDurationSeconds: number;
   softLimitSeconds: number;
+  estimatedProcessingMs: number;
+  showOnboarding: boolean;
+  onDismissOnboarding: () => void;
 }
 
-const SIDE_META: Record<SupportedLanguage, { flag: string; name: string; color: string; ring: string }> = {
+interface SideMeta {
+  flag: string;
+  name: string;
+  role: string;
+  gradient: string;
+  ring: string;
+  bg: string;
+  bgFaded: string;
+}
+
+const SIDE_META: Record<SupportedLanguage, SideMeta> = {
   es: {
     flag: "🇲🇽",
     name: "Español",
-    color: "from-emerald-500 to-teal-500",
+    role: "Tú",
+    gradient: "from-emerald-500 to-teal-500",
     ring: "ring-emerald-400",
+    bg: "bg-emerald-500",
+    bgFaded: "bg-emerald-500/20",
   },
   ja: {
     flag: "🇯🇵",
     name: "日本語",
-    color: "from-violet-600 to-indigo-500",
+    role: "Otro",
+    gradient: "from-violet-600 to-indigo-500",
     ring: "ring-violet-400",
+    bg: "bg-violet-500",
+    bgFaded: "bg-violet-500/20",
   },
 };
 
@@ -36,27 +55,112 @@ function opposite(side: SupportedLanguage): SupportedLanguage {
   return side === "es" ? "ja" : "es";
 }
 
+function orbStateLabel(value: ConversationState["es" | "ja"]): string {
+  if (value === "listening") return "Escuchando…";
+  if (value === "speaking") return "Reproduciendo…";
+  if (value === "processing") return "Analizando…";
+  return "En espera";
+}
+
+function ProcessingDots() {
+  return (
+    <span className="inline-flex items-center gap-1 ml-1" aria-hidden="true">
+      <span className="w-1 h-1 rounded-full bg-current animate-pulse" style={{ animationDelay: "0ms" }} />
+      <span className="w-1 h-1 rounded-full bg-current animate-pulse" style={{ animationDelay: "150ms" }} />
+      <span className="w-1 h-1 rounded-full bg-current animate-pulse" style={{ animationDelay: "300ms" }} />
+    </span>
+  );
+}
+
+function OrbContextMenu({
+  side,
+  onClose,
+  onCancel,
+  onInvert,
+  position,
+}: {
+  side: SupportedLanguage;
+  onClose: () => void;
+  onCancel: () => void;
+  onInvert: () => void;
+  position: "below-es" | "below-ja";
+}) {
+  const meta = SIDE_META[side];
+  const ref = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent | TouchEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener("mousedown", handler);
+    document.addEventListener("touchstart", handler);
+    return () => {
+      document.removeEventListener("mousedown", handler);
+      document.removeEventListener("touchstart", handler);
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      ref={ref}
+      className={`absolute z-20 ${position === "below-es" ? "top-3" : "bottom-3"} left-1/2 -translate-x-1/2 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl shadow-black/60 p-2 flex flex-col gap-1 min-w-[10rem] animate-in fade-in slide-in-from-top-2 duration-150`}
+      onClick={(e) => e.stopPropagation()}
+      role="menu"
+    >
+      <button
+        type="button"
+        role="menuitem"
+        onClick={() => {
+          onCancel();
+          onClose();
+        }}
+        className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold text-red-300 hover:bg-red-950/60 hover:text-red-200 transition-colors"
+      >
+        <span aria-hidden="true">⏹</span>
+        <span>Cancelar este turno</span>
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        onClick={() => {
+          onInvert();
+          onClose();
+        }}
+        className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold ${meta.bgFaded} text-white hover:bg-slate-800 transition-colors`}
+      >
+        <span aria-hidden="true">🔁</span>
+        <span>Pasar al otro lado</span>
+      </button>
+    </div>
+  );
+}
+
 function Orb({
   side,
   stateValue,
   turnDurationSeconds,
   softLimitSeconds,
+  isNextSpeaker,
   onLongPress,
   onDoubleTap,
   onTapToStart,
+  onCancelActive,
+  onInvertActive,
 }: {
   side: SupportedLanguage;
   stateValue: ConversationState["es" | "ja"];
   turnDurationSeconds: number;
   softLimitSeconds: number;
+  isNextSpeaker: boolean;
   onLongPress: () => void;
   onDoubleTap: () => void;
   onTapToStart: () => void;
+  onCancelActive: () => void;
+  onInvertActive: () => void;
 }) {
   const meta = SIDE_META[side];
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastTapTs = useRef<number>(0);
-  const tapTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const clearLongPress = () => {
     if (longPressTimer.current) {
@@ -69,110 +173,204 @@ function Orb({
     clearLongPress();
     longPressTimer.current = setTimeout(() => {
       longPressTimer.current = null;
-      onLongPress();
-    }, 600);
+      if (stateValue !== "idle") {
+        setMenuOpen(true);
+      } else {
+        onLongPress();
+      }
+    }, 500);
   };
 
   const handlePointerUp = () => {
     if (longPressTimer.current) {
-      // Fue un tap corto, no long-press
       clearLongPress();
-      const now = Date.now();
-      if (now - lastTapTs.current < 300) {
-        onDoubleTap();
-        lastTapTs.current = 0;
-        if (tapTimeoutRef.current) {
-          clearTimeout(tapTimeoutRef.current);
-          tapTimeoutRef.current = null;
-        }
+      // Tap corto
+      if (menuOpen) return;
+      if (stateValue === "idle") {
+        onTapToStart();
       } else {
-        lastTapTs.current = now;
-        tapTimeoutRef.current = setTimeout(() => {
-          lastTapTs.current = 0;
-          onTapToStart();
-        }, 300);
+        // Tap en orbe activo: también abre menú
+        setMenuOpen(true);
       }
     }
   };
 
-  const handlePointerLeave = () => {
-    clearLongPress();
-  };
+  const handlePointerLeave = () => clearLongPress();
 
-  useEffect(() => () => {
-    clearLongPress();
-    if (tapTimeoutRef.current) clearTimeout(tapTimeoutRef.current);
-  }, []);
+  useEffect(
+    () => () => {
+      clearLongPress();
+    },
+    []
+  );
 
-  const visualState = useMemo(() => {
-    if (stateValue === "listening") return "listening";
-    if (stateValue === "speaking") return "speaking";
-    if (stateValue === "processing") return "processing";
-    return "idle";
+  // Cierre de menú si el estado cambia (e.g. turno terminó)
+  useEffect(() => {
+    if (stateValue === "idle") setMenuOpen(false);
   }, [stateValue]);
 
   const isOverSoftLimit = turnDurationSeconds >= softLimitSeconds;
+  const isActive = stateValue !== "idle";
+  const isNext = isNextSpeaker && stateValue === "idle";
 
   return (
-    <div className="flex flex-col items-center justify-center gap-3 px-5 py-3 select-none">
+    <div
+      className={`relative flex flex-col items-center justify-center gap-3 px-5 py-3 select-none transition-opacity duration-300 ${
+        isActive ? "opacity-100" : isNext ? "opacity-100" : "opacity-50"
+      }`}
+    >
+      {menuOpen && (
+        <OrbContextMenu
+          side={side}
+          onClose={() => setMenuOpen(false)}
+          onCancel={onCancelActive}
+          onInvert={onInvertActive}
+          position={side === "es" ? "below-es" : "below-ja"}
+        />
+      )}
+
       <div className="text-center">
-        <div className="text-3xl">{meta.flag}</div>
-        <div className="text-white font-bold text-base tracking-tight">{meta.name}</div>
-        <div className="text-[11px] text-slate-400 uppercase tracking-wider">
-          {visualState === "listening" && "Escuchando…"}
-          {visualState === "speaking" && "Hablando…"}
-          {visualState === "processing" && "Procesando…"}
-          {visualState === "idle" && "En espera"}
+        <div className="flex items-center justify-center gap-2">
+          <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">
+            {meta.role}
+          </span>
+        </div>
+        <div className="flex items-center justify-center gap-2 mt-0.5">
+          <span className="text-2xl" aria-hidden="true">
+            {meta.flag}
+          </span>
+          <span className="text-white font-bold text-base tracking-tight">{meta.name}</span>
+        </div>
+        <div
+          className={`text-[11px] mt-0.5 uppercase tracking-wider flex items-center justify-center gap-1 ${
+            isActive
+              ? stateValue === "listening"
+                ? "text-emerald-400 font-semibold"
+                : stateValue === "speaking"
+                ? "text-violet-300 font-semibold"
+                : "text-amber-400 font-semibold"
+              : "text-slate-500"
+          }`}
+        >
+          <span>{orbStateLabel(stateValue)}</span>
+          {stateValue === "processing" && <ProcessingDots />}
         </div>
       </div>
 
       <button
         type="button"
-        aria-label={`Orbe ${meta.name}`}
-        aria-pressed={visualState !== "idle"}
+        aria-label={`Orbe ${meta.role} (${meta.name})${
+          stateValue === "idle" ? " · toca para iniciar turno" : " · toca para menú"
+        }`}
+        aria-pressed={isActive}
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
         onPointerLeave={handlePointerLeave}
         onPointerCancel={handlePointerLeave}
+        onDoubleClick={onDoubleTap}
         className={`relative w-32 h-32 rounded-full flex items-center justify-center text-3xl select-none touch-manipulation transition-all duration-200 ${
-          visualState === "listening"
-            ? `bg-gradient-to-br ${meta.color} shadow-2xl scale-105 ring-4 ${meta.ring}`
-            : visualState === "speaking"
-            ? `bg-gradient-to-br ${meta.color} shadow-2xl ring-4 ${meta.ring}`
-            : visualState === "processing"
-            ? "bg-slate-800 ring-4 ring-slate-600"
-            : "bg-slate-900 ring-2 ring-slate-800 opacity-70"
-        } ${isOverSoftLimit && visualState === "listening" ? "animate-pulse" : ""}`}
+          stateValue === "listening"
+            ? `bg-gradient-to-br ${meta.gradient} shadow-2xl scale-105 ring-4 ${meta.ring}`
+            : stateValue === "speaking"
+            ? `bg-gradient-to-br ${meta.gradient} shadow-2xl ring-4 ${meta.ring}`
+            : stateValue === "processing"
+            ? "bg-slate-800 ring-4 ring-amber-400/50"
+            : isNext
+            ? `bg-slate-800 ring-2 ${meta.ring} animate-pulse`
+            : "bg-slate-900 ring-2 ring-slate-800"
+        } ${isOverSoftLimit && stateValue === "listening" ? "animate-pulse" : ""}`}
       >
-        {visualState === "listening" && (
+        {stateValue === "listening" && (
           <>
-            <span className="absolute w-32 h-32 rounded-full bg-emerald-500/20 recording-ring pointer-events-none" />
-            <span className="absolute w-32 h-32 rounded-full bg-emerald-500/10 recording-ring-2 pointer-events-none" />
+            <span
+              className={`absolute w-32 h-32 rounded-full ${meta.bgFaded} recording-ring pointer-events-none`}
+            />
+            <span
+              className={`absolute w-32 h-32 rounded-full ${meta.bg} opacity-10 recording-ring-2 pointer-events-none`}
+            />
           </>
         )}
-        {visualState === "speaking" && (
+        {stateValue === "speaking" && (
           <>
-            <span className="absolute w-32 h-32 rounded-full bg-violet-500/20 recording-ring pointer-events-none" />
-            <span className="absolute w-32 h-32 rounded-full bg-violet-500/10 recording-ring-2 pointer-events-none" />
+            <span
+              className={`absolute w-32 h-32 rounded-full ${meta.bgFaded} recording-ring pointer-events-none`}
+            />
+            <span
+              className={`absolute w-32 h-32 rounded-full ${meta.bg} opacity-10 recording-ring-2 pointer-events-none`}
+            />
           </>
         )}
-        {visualState === "processing" ? (
+        {stateValue === "processing" ? (
           <div className="w-8 h-8 border-[3px] border-white border-t-transparent rounded-full animate-spin" />
+        ) : stateValue === "idle" ? (
+          isNext ? (
+            <span className="text-2xl" aria-hidden="true">
+              {meta.flag}
+            </span>
+          ) : (
+            <span aria-hidden="true">🎙️</span>
+          )
         ) : (
-          <span aria-hidden="true">{visualState === "idle" ? "🎙️" : "🔊"}</span>
+          <span aria-hidden="true">🔊</span>
         )}
       </button>
 
-      <p className="text-[10px] text-slate-500 text-center leading-tight max-w-[14rem]">
-        {visualState === "listening" && (
-          isOverSoftLimit
-            ? `Llevas ${turnDurationSeconds}s · se cerrará pronto`
-            : `Habla. Se cierra al detectar silencio (${turnDurationSeconds}s).`
-        )}
-        {visualState === "speaking" && "Reproduciendo traducción…"}
-        {visualState === "processing" && "Enviando a Gemini…"}
-        {visualState === "idle" && "Toca para forzar turno · Doble tap para invertir · Mantén para abortar"}
+      <p
+        className={`text-[10px] text-center leading-tight max-w-[14rem] ${
+          isActive ? "text-slate-300" : "text-slate-500"
+        }`}
+      >
+        {stateValue === "listening" &&
+          (isOverSoftLimit
+            ? `Llevas ${turnDurationSeconds}s · cierra pronto`
+            : `Escuchando · cierra al detectar silencio`)}
+        {stateValue === "speaking" && "Reproduciendo traducción…"}
+        {stateValue === "processing" && "Enviando audio a Gemini…"}
+        {stateValue === "idle" &&
+          (isNext
+            ? "Toca para hablar ahora · long-press para invertir"
+            : "Esperando · long-press el orbe activo para invertir")}
       </p>
+    </div>
+  );
+}
+
+function OnboardingToast({
+  side,
+  onDismiss,
+}: {
+  side: SupportedLanguage;
+  onDismiss: () => void;
+}) {
+  const meta = SIDE_META[side];
+  const otherMeta = SIDE_META[opposite(side)];
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="mx-5 mb-3 bg-violet-950/80 border border-violet-700/40 rounded-2xl p-3 shadow-lg flex items-start gap-3 animate-in fade-in slide-in-from-top-2 duration-200"
+    >
+      <span className="text-2xl shrink-0" aria-hidden="true">
+        🗣️
+      </span>
+      <div className="flex-1 min-w-0">
+        <p className="text-white text-sm font-bold leading-snug">
+          Habla ahora en {meta.name}
+        </p>
+        <p className="text-violet-200 text-[11px] leading-snug mt-0.5">
+          {meta.flag} Te escucho. {otherMeta.flag} {otherMeta.role} habla cuando aparezca el orbe{" "}
+          {otherMeta.name}.
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onDismiss}
+        aria-label="Cerrar ayuda"
+        className="text-violet-300 hover:text-white text-xs px-2 py-1 rounded-lg bg-violet-900/40"
+      >
+        ✕
+      </button>
     </div>
   );
 }
@@ -195,7 +393,7 @@ function LastTranslation({
       <div className="flex items-center justify-between mb-1.5">
         <span className="text-violet-300 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
           <span>{meta.flag}</span>
-          <span>Última traducción</span>
+          <span>Última traducción → {meta.role}</span>
         </span>
         <button
           type="button"
@@ -221,15 +419,46 @@ export default function ConversationView({
   history,
   turnDurationSeconds,
   softLimitSeconds,
+  estimatedProcessingMs,
+  showOnboarding,
+  onDismissOnboarding,
 }: ConversationViewProps) {
   const sessionTurnCount = useMemo(
     () => history.filter((h) => h.session_id === state.sessionId).length,
     [history, state.sessionId]
   );
 
-  const handleExit = useCallback(() => {
-    onExit();
-  }, [onExit]);
+  // ETA: mostramos cuenta atrás en procesando
+  const [elapsedProcessingMs, setElapsedProcessingMs] = useState(0);
+  useEffect(() => {
+    if (state.activeSide === null) {
+      setElapsedProcessingMs(0);
+      return;
+    }
+    if (state.es === "processing" || state.ja === "processing") {
+      const startedAt = performance.now();
+      const tick = () => {
+        setElapsedProcessingMs(performance.now() - startedAt);
+        if (state.es === "processing" || state.ja === "processing") {
+          requestAnimationFrame(tick);
+        }
+      };
+      requestAnimationFrame(tick);
+    }
+  }, [state.es, state.ja, state.activeSide]);
+
+  const isProcessing = state.es === "processing" || state.ja === "processing";
+  const remainingSeconds = isProcessing
+    ? Math.max(0, Math.ceil((estimatedProcessingMs - elapsedProcessingMs) / 1000))
+    : 0;
+
+  // Quién es el próximo hablante
+  const nextSpeaker: SupportedLanguage | null = (() => {
+    if (state.activeSide === null) return null;
+    if (state[state.activeSide] === "speaking") return opposite(state.activeSide);
+    if (state[state.activeSide] === "processing") return opposite(state.activeSide);
+    return null;
+  })();
 
   return (
     <div className="flex flex-col flex-1" data-testid="conversation-view">
@@ -243,11 +472,12 @@ export default function ConversationView({
           <span className="text-slate-300 text-xs font-medium">
             Sesión activa · turno {state.turnIndex + 1}
             {sessionTurnCount > 0 && ` · ${sessionTurnCount} traducidos`}
+            {isProcessing && ` · ~${remainingSeconds}s`}
           </span>
         </div>
         <button
           type="button"
-          onClick={handleExit}
+          onClick={onExit}
           aria-label="Salir del modo conversación"
           className="text-slate-400 hover:text-white text-xs px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 transition-colors"
         >
@@ -255,7 +485,12 @@ export default function ConversationView({
         </button>
       </div>
 
-      {/* Split vertical: ES arriba, JA abajo */}
+      {/* Onboarding toast */}
+      {showOnboarding && state.activeSide === "es" && state.es === "listening" && state.turnIndex === 0 && (
+        <OnboardingToast side="es" onDismiss={onDismissOnboarding} />
+      )}
+
+      {/* Split vertical: ES arriba (Tú), JA abajo (Otro) */}
       <div className="flex-1 flex flex-col">
         <div className="flex-1 flex items-center justify-center border-b border-slate-900/60">
           <Orb
@@ -263,9 +498,12 @@ export default function ConversationView({
             stateValue={state.es}
             turnDurationSeconds={turnDurationSeconds}
             softLimitSeconds={softLimitSeconds}
+            isNextSpeaker={nextSpeaker === "es"}
             onLongPress={() => onLongPressOrb("es")}
             onDoubleTap={() => onDoubleTapOrb("es")}
             onTapToStart={() => onOpenMic("es")}
+            onCancelActive={() => onLongPressOrb("es")}
+            onInvertActive={() => onDoubleTapOrb("es")}
           />
         </div>
         <div className="flex-1 flex items-center justify-center">
@@ -274,9 +512,12 @@ export default function ConversationView({
             stateValue={state.ja}
             turnDurationSeconds={turnDurationSeconds}
             softLimitSeconds={softLimitSeconds}
+            isNextSpeaker={nextSpeaker === "ja"}
             onLongPress={() => onLongPressOrb("ja")}
             onDoubleTap={() => onDoubleTapOrb("ja")}
             onTapToStart={() => onOpenMic("ja")}
+            onCancelActive={() => onLongPressOrb("ja")}
+            onInvertActive={() => onDoubleTapOrb("ja")}
           />
         </div>
       </div>

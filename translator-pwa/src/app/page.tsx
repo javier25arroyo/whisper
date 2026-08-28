@@ -8,6 +8,10 @@ import {
   oppositeOfActive,
   CONVERSATION_CONSTANTS,
 } from "#lib/conversationMachine";
+
+function oppositeLang(side: SupportedLanguage): SupportedLanguage {
+  return side === "es" ? "ja" : "es";
+}
 import { useSilenceDetector } from "#lib/useSilenceDetector";
 import {
   loadHistory,
@@ -47,9 +51,11 @@ const SAMPLE_PHRASES: { text: string; lang: SupportedLanguage; dir: Direction }[
 const SOFT_LIMIT_SECONDS = CONVERSATION_CONSTANTS.SOFT_LIMIT_SECONDS;
 const HARD_LIMIT_SECONDS = CONVERSATION_CONSTANTS.HARD_LIMIT_SECONDS;
 const POST_TURN_PAUSE_MS = CONVERSATION_CONSTANTS.POST_TURN_PAUSE_MS;
+const ESTIMATED_PROCESSING_MS = 5000;
+const STORAGE_MODE_KEY = "whisper_pwa_mode";
 
 export default function Home() {
-  const [mode, setMode] = useState<Mode>("single");
+  const [mode, setModeState] = useState<Mode>("conversation");
   const [direction, setDirection] = useState<Direction>("auto");
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -60,6 +66,18 @@ export default function Home() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [speakingKey, setSpeakingKey] = useState<string | null>(null);
   const [history, setHistory] = useState<HistoryItemV2[]>([]);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showFullHistory, setShowFullHistory] = useState(false);
+  const [historyDismissed, setHistoryDismissed] = useState(false);
+
+  const setMode = useCallback((next: Mode) => {
+    setModeState(next);
+    try {
+      localStorage.setItem(STORAGE_MODE_KEY, next);
+    } catch {
+      // No-op
+    }
+  }, []);
 
   // Estado del modo conversación
   const [convState, dispatchConv] = useReducer(conversationReducer, initialConversationState);
@@ -70,6 +88,8 @@ export default function Home() {
   const convTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const convNextTurnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const convSpeakingDoneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Buffer para reabrir mic si el interlocutor habla durante procesando
+  const pendingReopenRef = useRef<{ side: SupportedLanguage; timer: ReturnType<typeof setTimeout> | null } | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioStreamRef = useRef<MediaStream | null>(null);
@@ -80,6 +100,10 @@ export default function Home() {
   // Cargar preferencias e historial al montar
   useEffect(() => {
     try {
+      const savedMode = localStorage.getItem(STORAGE_MODE_KEY);
+      if (savedMode === "single" || savedMode === "conversation") {
+        setModeState(savedMode);
+      }
       const savedAutoSpeak = localStorage.getItem("whisper_pwa_autospeak");
       if (savedAutoSpeak !== null) {
         setAutoSpeak(savedAutoSpeak === "true");
@@ -104,8 +128,29 @@ export default function Home() {
     saveHistory(history);
   }, [history]);
 
-  // Limpiar timers al desmontar
+  // Limpiar timers al desmontar + TTS/micro cleanup en beforeunload y visibilitychange
   useEffect(() => {
+    const cleanup = () => {
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+    const handleBeforeUnload = () => {
+      cleanup();
+      if (audioStreamRef.current) {
+        audioStreamRef.current.getTracks().forEach((t) => t.stop());
+      }
+      if (convAudioStream) {
+        convAudioStream.getTracks().forEach((t) => t.stop());
+      }
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        cleanup();
+      }
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
       if (convTimerRef.current) clearInterval(convTimerRef.current);
@@ -118,9 +163,9 @@ export default function Home() {
       if (convAudioStream) {
         convAudioStream.getTracks().forEach((t) => t.stop());
       }
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
-      }
+      cleanup();
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [convAudioStream]);
 
@@ -643,6 +688,61 @@ export default function Home() {
     }
   }, [mode, convState.sessionId, exitConversation]);
 
+  // Auto-arranque: si el modo persistido es conversation, entrar al montar
+  // (sólo cuando convState.sessionId es null, para no reiniciar la sesión cada render)
+  const autoStartAttemptedRef = useRef(false);
+  useEffect(() => {
+    if (autoStartAttemptedRef.current) return;
+    autoStartAttemptedRef.current = true;
+    const hasGetUserMedia =
+      typeof navigator !== "undefined" &&
+      typeof navigator.mediaDevices?.getUserMedia === "function";
+    if (
+      mode === "conversation" &&
+      convState.sessionId === null &&
+      hasGetUserMedia
+    ) {
+      const newSessionId = `sess-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      dispatchConv({ type: "ENTER_CONVERSATION", sessionId: newSessionId, startSide: "es" });
+      setShowOnboarding(true);
+      openConvMic("es");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Detección de sonido durante 'procesando': reabrir el lado opuesto si se detecta voz
+  const lastSideDuringProcessingRef = useRef<SupportedLanguage | null>(null);
+  useEffect(() => {
+    if (convState.es !== "processing" && convState.ja !== "processing") {
+      lastSideDuringProcessingRef.current = null;
+      return;
+    }
+    // Mientras estamos procesando, el interlocutor puede hablar. Si se detecta
+    // sonido antes de que termine, marcamos que el próximo turno debe ser el otro lado
+    // y forzamos la cancelación de la respuesta pendiente (no implementado en esta versión,
+    // sólo preparamos el estado para reabrir el mic en cuanto termine la respuesta).
+    const processingSide: SupportedLanguage = convState.es === "processing" ? "es" : "ja";
+    lastSideDuringProcessingRef.current = oppositeLang(processingSide);
+  }, [convState.es, convState.ja]);
+
+  // Cuando termina el procesamiento, si hay un lado pendiente (interlocutor habló durante),
+  // reabrimos su micro tras un pequeño delay.
+  useEffect(() => {
+    if (convState.activeSide !== null) return; // alguien activo, no intervenir
+    if (lastSideDuringProcessingRef.current === null) return;
+    if (!autoSpeak) return; // usuario quiere control manual
+    const sideToReopen = lastSideDuringProcessingRef.current;
+    lastSideDuringProcessingRef.current = null;
+    const t = setTimeout(() => {
+      // Sólo si sigue idle (no se canceló manualmente en el ínterin)
+      if (convState[sideToReopen] === "idle" && convState.activeSide === null) {
+        openConvMic(sideToReopen);
+      }
+    }, POST_TURN_PAUSE_MS);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [convState.es, convState.ja, convState.activeSide]);
+
   const handleClearHistory = () => {
     setHistory([]);
     clearStoredHistory();
@@ -699,8 +799,8 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Segmented control de modo */}
-      <div className="px-5 pt-3">
+      {/* Segmented control de modo (debajo del header, fila propia) */}
+      <div className="px-5 pt-3 pb-3 border-b border-slate-900/60">
         <div className="flex bg-slate-900/90 border border-slate-800/80 rounded-2xl p-1 gap-1 shadow-inner" role="tablist" aria-label="Modo de uso">
           <button
             type="button"
@@ -710,13 +810,13 @@ export default function Home() {
               primeAudioContext();
               setMode("single");
             }}
-            className={`flex-1 py-2 px-2 rounded-xl text-xs font-semibold transition-all duration-200 ${
+            className={`flex-1 py-2.5 px-2 rounded-xl text-xs font-semibold transition-all duration-200 ${
               mode === "single"
                 ? "bg-violet-600 text-white shadow-lg shadow-violet-900/50"
                 : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
             }`}
           >
-            🎯 Single
+            🎯 Una frase
           </button>
           <button
             type="button"
@@ -724,10 +824,13 @@ export default function Home() {
             aria-selected={mode === "conversation"}
             onClick={() => {
               primeAudioContext();
-              if (mode === "single") enterConversation();
+              if (mode === "single") {
+                enterConversation();
+                setShowOnboarding(true);
+              }
               setMode("conversation");
             }}
-            className={`flex-1 py-2 px-2 rounded-xl text-xs font-semibold transition-all duration-200 ${
+            className={`flex-1 py-2.5 px-2 rounded-xl text-xs font-semibold transition-all duration-200 ${
               mode === "conversation"
                 ? "bg-violet-600 text-white shadow-lg shadow-violet-900/50"
                 : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
@@ -927,95 +1030,127 @@ export default function Home() {
           onLongPressOrb={handleConvLongPressOrb}
           onDoubleTapOrb={handleConvDoubleTapOrb}
           onOpenMic={handleConvTapOrb}
-          onExit={exitConversation}
+          onExit={() => {
+            exitConversation();
+            setShowOnboarding(false);
+          }}
           onPlayLastTranslation={handlePlayLastConv}
           history={history}
           turnDurationSeconds={convTurnSeconds}
           softLimitSeconds={SOFT_LIMIT_SECONDS}
+          estimatedProcessingMs={ESTIMATED_PROCESSING_MS}
+          showOnboarding={showOnboarding}
+          onDismissOnboarding={() => setShowOnboarding(false)}
         />
       )}
 
-      {/* Historial unificado */}
+      {/* Historial unificado — siempre visible en single, colapsado en conversation */}
       {history.length > 0 && (
         <section className="mx-5 mb-5" aria-label="Historial de traducciones">
-          <div className="flex items-center justify-between mb-2.5">
-            <span className="text-slate-400 text-xs font-bold uppercase tracking-wider">
-              Historial ({history.length})
-            </span>
+          {mode === "conversation" && !showFullHistory ? (
             <button
-              onClick={handleClearHistory}
-              className="text-slate-500 hover:text-slate-300 text-[11px] font-medium transition-colors"
+              type="button"
+              onClick={() => setShowFullHistory(true)}
+              className="w-full bg-slate-900/50 hover:bg-slate-900 border border-slate-800/80 rounded-xl px-3 py-2 flex items-center justify-between text-xs text-slate-400 hover:text-slate-200 transition-colors"
             >
-              Borrar historial
+              <span className="flex items-center gap-2">
+                <span>📜</span>
+                <span>Ver historial ({history.length})</span>
+              </span>
+              <span aria-hidden="true">↓</span>
             </button>
-          </div>
-
-          <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-            {history.map((item, idx) => {
-              const targetLang: SupportedLanguage = item.detected_language === "es" ? "ja" : "es";
-              const isItemSpeaking = speakingKey === `hist-${item.id}`;
-              const isItemCopied = copiedId === `hist-${item.id}`;
-              const showSessionHeader =
-                item.mode === "conversation" &&
-                (idx === 0 || history[idx - 1]?.session_id !== item.session_id);
-
-              return (
-                <div key={item.id}>
-                  {showSessionHeader && (
-                    <div className="text-[10px] text-violet-400 uppercase font-bold tracking-wider mt-2 mb-1 pl-1">
-                      💬 Sesión conversación
-                    </div>
+          ) : (
+            <>
+              <div className="flex items-center justify-between mb-2.5">
+                <span className="text-slate-400 text-xs font-bold uppercase tracking-wider flex items-center gap-2">
+                  <span>Historial ({history.length})</span>
+                  {mode === "conversation" && (
+                    <button
+                      type="button"
+                      onClick={() => setShowFullHistory(false)}
+                      aria-label="Ocultar historial"
+                      className="text-slate-500 hover:text-slate-300 text-[11px] font-normal normal-case tracking-normal"
+                    >
+                      Ocultar ↑
+                    </button>
                   )}
-                  <div
-                    className="bg-slate-900/70 hover:bg-slate-900 border border-slate-800/80 rounded-xl p-3 flex items-start gap-3 transition-colors cursor-pointer group"
-                    onClick={() => {
-                      if (mode === "single") {
-                        setResult({
-                          detected_language: item.detected_language,
-                          original_text: item.original_text,
-                          translation: item.translation,
-                        });
-                      }
-                    }}
-                  >
-                    <div className="flex flex-col items-center gap-0.5 mt-0.5 shrink-0">
-                      <span className="text-sm">{LANG_CONFIG[item.detected_language]?.flag}</span>
-                      <span className="text-[10px] text-slate-500">↓</span>
-                      <span className="text-sm">{LANG_CONFIG[targetLang]?.flag}</span>
-                    </div>
+                </span>
+                <button
+                  onClick={handleClearHistory}
+                  className="text-slate-500 hover:text-slate-300 text-[11px] font-medium transition-colors"
+                >
+                  Borrar historial
+                </button>
+              </div>
 
-                    <div className="flex-1 min-w-0">
-                      <p className="text-slate-300 text-xs font-medium truncate">{item.original_text}</p>
-                      <p className="text-violet-300 text-xs font-semibold truncate mt-0.5">{item.translation}</p>
-                    </div>
+              <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                {history.map((item, idx) => {
+                  const targetLang: SupportedLanguage = item.detected_language === "es" ? "ja" : "es";
+                  const isItemSpeaking = speakingKey === `hist-${item.id}`;
+                  const isItemCopied = copiedId === `hist-${item.id}`;
+                  const showSessionHeader =
+                    item.mode === "conversation" &&
+                    (idx === 0 || history[idx - 1]?.session_id !== item.session_id);
 
-                    <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        aria-label="Reproducir traducción"
-                        onClick={() => speak(item.translation, targetLang, `hist-${item.id}`)}
-                        className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs transition-colors ${
-                          isItemSpeaking
-                            ? "bg-violet-600 text-white shadow-sm"
-                            : "bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700"
-                        }`}
+                  return (
+                    <div key={item.id}>
+                      {showSessionHeader && (
+                        <div className="text-[10px] text-violet-400 uppercase font-bold tracking-wider mt-2 mb-1 pl-1">
+                          💬 Sesión conversación
+                        </div>
+                      )}
+                      <div
+                        className="bg-slate-900/70 hover:bg-slate-900 border border-slate-800/80 rounded-xl p-3 flex items-start gap-3 transition-colors cursor-pointer group"
+                        onClick={() => {
+                          if (mode === "single") {
+                            setResult({
+                              detected_language: item.detected_language,
+                              original_text: item.original_text,
+                              translation: item.translation,
+                            });
+                          }
+                        }}
                       >
-                        {isItemSpeaking ? "🔊" : "🔉"}
-                      </button>
-                      <button
-                        type="button"
-                        aria-label="Copiar traducción"
-                        onClick={() => copyToClipboard(item.translation, `hist-${item.id}`)}
-                        className="w-7 h-7 rounded-lg bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 flex items-center justify-center text-xs transition-colors"
-                      >
-                        {isItemCopied ? "✅" : "📋"}
-                      </button>
+                        <div className="flex flex-col items-center gap-0.5 mt-0.5 shrink-0">
+                          <span className="text-sm">{LANG_CONFIG[item.detected_language]?.flag}</span>
+                          <span className="text-[10px] text-slate-500">↓</span>
+                          <span className="text-sm">{LANG_CONFIG[targetLang]?.flag}</span>
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <p className="text-slate-300 text-xs font-medium truncate">{item.original_text}</p>
+                          <p className="text-violet-300 text-xs font-semibold truncate mt-0.5">{item.translation}</p>
+                        </div>
+
+                        <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            aria-label="Reproducir traducción"
+                            onClick={() => speak(item.translation, targetLang, `hist-${item.id}`)}
+                            className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs transition-colors ${
+                              isItemSpeaking
+                                ? "bg-violet-600 text-white shadow-sm"
+                                : "bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700"
+                            }`}
+                          >
+                            {isItemSpeaking ? "🔊" : "🔉"}
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="Copiar traducción"
+                            onClick={() => copyToClipboard(item.translation, `hist-${item.id}`)}
+                            className="w-7 h-7 rounded-lg bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700 flex items-center justify-center text-xs transition-colors"
+                          >
+                            {isItemCopied ? "✅" : "📋"}
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </section>
       )}
 
