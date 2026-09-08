@@ -13,6 +13,7 @@ function oppositeLang(side: SupportedLanguage): SupportedLanguage {
   return side === "es" ? "ja" : "es";
 }
 import { useSilenceDetector } from "#lib/useSilenceDetector";
+import { postTranslate } from "#lib/apiClient";
 import {
   loadHistory,
   saveHistory,
@@ -247,18 +248,7 @@ export default function Home() {
       setIsProcessing(true);
       setError(null);
       try {
-        const formData = new FormData();
-        const extension = mimeType.includes("mp4") ? "m4a" : "webm";
-        formData.append("audio", blob, `voice-input.${extension}`);
-        formData.append("direction", direction);
-        const res = await fetch("/api/translate", {
-          method: "POST",
-          body: formData,
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data.error || "Error al procesar la traducción.");
-        }
+        const data = await postTranslate({ blob, mimeType, direction });
         const newResult: TranslationResult = {
           detected_language: data.detected_language,
           original_text: data.original_text,
@@ -463,18 +453,11 @@ export default function Home() {
       dispatchConv({ type: "SEND_AUDIO", side: activeSide });
 
       try {
-        const formData = new FormData();
-        const extension = finalMimeType.includes("mp4") ? "m4a" : "webm";
-        formData.append("audio", blob, `conv-${activeSide}.${extension}`);
-        formData.append("direction", "auto");
-
-        const res = await fetch("/api/translate", { method: "POST", body: formData });
-        const data = await res.json();
-        if (!res.ok) {
-          dispatchConv({ type: "SET_ERROR", error: data.error || "Error en traducción" });
-          // Tras error, limpiar estado activo y dejar conversation idle
-          return;
-        }
+        const data = await postTranslate({
+          blob,
+          mimeType: finalMimeType,
+          direction: "auto",
+        });
 
         const detected: SupportedLanguage = data.detected_language;
         const translation = data.translation as string;
