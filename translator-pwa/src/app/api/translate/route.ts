@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server.js";
-import {
-  translateAudioWithGemini,
-  type TranslationResult,
-} from "#lib/translator";
+import { geminiProvider } from "#lib/providers/gemini";
+import type { TranslationResult } from "#lib/providers/types";
 
 export const maxDuration = 30;
 
@@ -43,12 +41,10 @@ export async function POST(req: NextRequest) {
 
     let translationResult: TranslationResult;
     try {
-      translationResult = await translateAudioWithGemini({
-        apiKey,
-        audioBase64: base64Audio,
-        mimeType: audioFile.type,
-        direction,
-      });
+      translationResult = await geminiProvider.translate(
+        { apiKey },
+        { audioBase64: base64Audio, mimeType: audioFile.type, direction }
+      );
     } catch (translateErr) {
       const msg = translateErr instanceof Error ? translateErr.message : "Error al procesar audio con Gemini";
       console.error("Error en llamada a Gemini / traducción:", translateErr);

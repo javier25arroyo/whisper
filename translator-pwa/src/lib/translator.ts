@@ -1,4 +1,3 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
 import type { SupportedLanguage, TranslationResult } from "./providers/types.ts";
 
 export type { SupportedLanguage, TranslationResult };
@@ -153,38 +152,4 @@ export function parseTranslationJson(
     original_text,
     translation,
   };
-}
-
-/**
- * Invoca el modelo Gemini 2.0 Flash con audio y prompt para obtener traducción.
- */
-export async function translateAudioWithGemini({
-  apiKey,
-  audioBase64,
-  mimeType,
-  direction,
-}: {
-  apiKey: string;
-  audioBase64: string;
-  mimeType: string;
-  direction?: string;
-}): Promise<TranslationResult> {
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-  const prompt = getPromptForDirection(direction);
-
-  const result = await model.generateContent([
-    {
-      inlineData: {
-        mimeType: normalizeMimeType(mimeType),
-        data: audioBase64,
-      },
-    },
-    { text: prompt },
-  ]);
-
-  const responseText = result.response.text();
-  const defaultLang: SupportedLanguage = direction === "ja-es" ? "ja" : "es";
-
-  return parseTranslationJson(responseText, defaultLang);
 }
