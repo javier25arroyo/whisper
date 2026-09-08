@@ -121,7 +121,7 @@ En `src/lib/translator.ts`, sustituir las definiciones locales de tipos de las l
 
 ```ts
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import type { SupportedLanguage, TranslationResult } from "./providers/types";
+import type { SupportedLanguage, TranslationResult } from "./providers/types.ts";
 
 export type { SupportedLanguage, TranslationResult };
 ```
@@ -238,14 +238,14 @@ import {
   getPromptForDirection,
   normalizeMimeType,
   parseTranslationJson,
-} from "../translator";
+} from "../translator.ts";
 import type {
   AudioTranslator,
   ProviderConfig,
   SupportedLanguage,
   TranslateInput,
   TranslationResult,
-} from "./types";
+} from "./types.ts";
 
 export const GEMINI_DEFAULT_MODEL = "gemini-2.0-flash";
 
@@ -422,14 +422,14 @@ Expected: FAIL — no se encuentra el módulo `openaiCompat.ts`.
 Crear `src/lib/providers/openaiCompat.ts`:
 
 ```ts
-import { getPromptForDirection, parseTranslationJson } from "../translator";
+import { getPromptForDirection, parseTranslationJson } from "../translator.ts";
 import type {
   AudioTranslator,
   ProviderConfig,
   SupportedLanguage,
   TranslateInput,
   TranslationResult,
-} from "./types";
+} from "./types.ts";
 
 /** La capa OpenAI-compatible solo admite estos formatos en input_audio. */
 const ACCEPTED_MIME_TYPES = ["audio/wav", "audio/x-wav", "audio/mpeg", "audio/mp3"];
@@ -574,9 +574,9 @@ Expected: FAIL — no se encuentra el módulo `index.ts`.
 Crear `src/lib/providers/index.ts`:
 
 ```ts
-import { geminiProvider, GEMINI_DEFAULT_MODEL } from "./gemini";
-import { openaiCompatProvider } from "./openaiCompat";
-import type { AudioTranslator, ProviderPreset } from "./types";
+import { geminiProvider, GEMINI_DEFAULT_MODEL } from "./gemini.ts";
+import { openaiCompatProvider } from "./openaiCompat.ts";
+import type { AudioTranslator, ProviderPreset } from "./types.ts";
 
 export const DEFAULT_PROVIDER_ID = "gemini";
 
@@ -1193,7 +1193,7 @@ Expected: FAIL — no se encuentra el módulo `providerSettings.ts`.
 Crear `src/lib/providerSettings.ts`:
 
 ```ts
-import { PRESETS } from "./providers/index";
+import { PRESETS } from "./providers/index.ts";
 
 const STORAGE_KEY = "whisper_pwa_provider";
 
@@ -1284,9 +1284,9 @@ Unifica las dos llamadas duplicadas de `page.tsx` en un punto donde se aplican a
 Crear `src/lib/apiClient.ts`:
 
 ```ts
-import { loadProviderSettings, needsWavConversion } from "./providerSettings";
-import { blobToWav } from "./wavEncoder";
-import type { TranslationResult } from "./providers/types";
+import { loadProviderSettings, needsWavConversion } from "./providerSettings.ts";
+import { blobToWav } from "./wavEncoder.ts";
+import type { TranslationResult } from "./providers/types.ts";
 
 export interface PostTranslateInput {
   blob: Blob;
