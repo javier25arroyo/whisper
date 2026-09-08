@@ -6,7 +6,7 @@ import {
   normalizeMimeType,
   normalizeLanguage,
   getPromptForDirection,
-  extractAndParseGeminiJson,
+  parseTranslationJson,
   PROMPTS,
 } from "../src/lib/translator.ts";
 import { POST } from "../src/app/api/translate/route.ts";
@@ -88,7 +88,7 @@ describe("API Translate - Prompt Selection", () => {
 describe("API Translate - Gemini JSON Extraction and Parsing", () => {
   it("parses raw clean JSON correctly", () => {
     const raw = '{"detected_language": "es", "original_text": "Hola mundo", "translation": "こんにちは世界"}';
-    const res = extractAndParseGeminiJson(raw);
+    const res = parseTranslationJson(raw);
     assert.deepEqual(res, {
       detected_language: "es",
       original_text: "Hola mundo",
@@ -104,7 +104,7 @@ describe("API Translate - Gemini JSON Extraction and Parsing", () => {
   "translation": "Muchas gracias"
 }
 \`\`\``;
-    const res = extractAndParseGeminiJson(fenced);
+    const res = parseTranslationJson(fenced);
     assert.deepEqual(res, {
       detected_language: "ja",
       original_text: "ありがとうございます",
@@ -120,7 +120,7 @@ describe("API Translate - Gemini JSON Extraction and Parsing", () => {
   "translation": "駅はどこですか？"
 }
 \`\`\``;
-    const res = extractAndParseGeminiJson(fenced);
+    const res = parseTranslationJson(fenced);
     assert.deepEqual(res, {
       detected_language: "es",
       original_text: "¿Dónde está la estación?",
@@ -136,7 +136,7 @@ describe("API Translate - Gemini JSON Extraction and Parsing", () => {
   "translation": "Buenos días"
 }
 ¡Espero que te sea de ayuda!`;
-    const res = extractAndParseGeminiJson(withComments);
+    const res = parseTranslationJson(withComments);
     assert.deepEqual(res, {
       detected_language: "ja",
       original_text: "おはようございます",
@@ -150,7 +150,7 @@ describe("API Translate - Gemini JSON Extraction and Parsing", () => {
       "original_text": "  Buenas noches a todos  ",
       "translation": "  皆さん、こんばんは  "
     }  `;
-    const res = extractAndParseGeminiJson(jsonStr);
+    const res = parseTranslationJson(jsonStr);
     assert.deepEqual(res, {
       detected_language: "es",
       original_text: "Buenas noches a todos",
@@ -159,20 +159,20 @@ describe("API Translate - Gemini JSON Extraction and Parsing", () => {
   });
 
   it("throws error when response is empty or non-string", () => {
-    assert.throws(() => extractAndParseGeminiJson(""), /Respuesta vacía de Gemini/);
-    assert.throws(() => extractAndParseGeminiJson(null), /Respuesta vacía de Gemini/);
+    assert.throws(() => parseTranslationJson(""), /Respuesta vacía del proveedor/);
+    assert.throws(() => parseTranslationJson(null), /Respuesta vacía del proveedor/);
   });
 
   it("throws error when no JSON object exists in the response", () => {
-    assert.throws(() => extractAndParseGeminiJson("Solo texto sin formato json"), /No se encontró un bloque JSON/);
+    assert.throws(() => parseTranslationJson("Solo texto sin formato json"), /No se encontró un bloque JSON/);
   });
 
   it("throws error when JSON is missing original_text or translation", () => {
     const missingOriginal = '{"detected_language": "es", "original_text": "", "translation": "Hola"}';
-    assert.throws(() => extractAndParseGeminiJson(missingOriginal), /Respuesta incompleta/);
+    assert.throws(() => parseTranslationJson(missingOriginal), /Respuesta incompleta/);
 
     const missingTranslation = '{"detected_language": "es", "original_text": "Hola", "translation": ""}';
-    assert.throws(() => extractAndParseGeminiJson(missingTranslation), /Respuesta incompleta/);
+    assert.throws(() => parseTranslationJson(missingTranslation), /Respuesta incompleta/);
   });
 });
 

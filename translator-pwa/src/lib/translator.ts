@@ -1,12 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import type { SupportedLanguage, TranslationResult } from "./providers/types.ts";
 
-export type SupportedLanguage = "es" | "ja";
-
-export interface TranslationResult {
-  detected_language: SupportedLanguage;
-  original_text: string;
-  translation: string;
-}
+export type { SupportedLanguage, TranslationResult };
 
 export const PROMPTS: Record<string, string> = {
   auto: `Escucha este audio con atención.
@@ -106,16 +101,16 @@ export function normalizeLanguage(
 }
 
 /**
- * Extrae y parsea el JSON retornado por Gemini.
+ * Extrae y parsea el JSON retornado por el proveedor.
  * Maneja bloques de código Markdown (```json ... ``` o ``` ... ```), texto adicional,
  * y valida que los campos requeridos existan y no estén vacíos.
  */
-export function extractAndParseGeminiJson(
+export function parseTranslationJson(
   responseText: string,
   defaultLang: SupportedLanguage = "es"
 ): TranslationResult {
   if (!responseText || typeof responseText !== "string") {
-    throw new Error("Respuesta vacía de Gemini");
+    throw new Error("Respuesta vacía del proveedor");
   }
 
   // 1. Quitar cercas de código Markdown si están presentes
@@ -136,7 +131,7 @@ export function extractAndParseGeminiJson(
   try {
     parsed = JSON.parse(jsonSubstring);
   } catch (err) {
-    throw new Error(`Error al parsear JSON de Gemini: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(`Error al parsear JSON del proveedor: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   if (typeof parsed !== "object" || parsed === null) {
@@ -191,5 +186,5 @@ export async function translateAudioWithGemini({
   const responseText = result.response.text();
   const defaultLang: SupportedLanguage = direction === "ja-es" ? "ja" : "es";
 
-  return extractAndParseGeminiJson(responseText, defaultLang);
+  return parseTranslationJson(responseText, defaultLang);
 }
