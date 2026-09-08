@@ -150,6 +150,12 @@ describe("registro de proveedores", () => {
     assert.equal(getProvider(""), null);
   });
 
+  it("devuelve null para claves heredadas del prototipo (no debe hacer bypass)", () => {
+    assert.equal(getProvider("__proto__"), null);
+    assert.equal(getProvider("constructor"), null);
+    assert.equal(getProvider("toString"), null);
+  });
+
   it("marca requiresWav solo en los proveedores OpenAI-compatible", () => {
     assert.equal(PRESETS.gemini.requiresWav, false);
     assert.equal(PRESETS.openai.requiresWav, true);

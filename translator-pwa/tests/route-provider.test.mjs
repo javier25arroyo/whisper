@@ -30,6 +30,12 @@ describe("resolución de proveedor en /api/translate", () => {
     assert.match((await res.json()).error, /Proveedor no reconocido/i);
   });
 
+  it("devuelve 400 cuando el id de proveedor es una clave de prototype (__proto__)", async () => {
+    const res = await POST(audioRequest({ "x-provider-id": "__proto__", "x-provider-key": "k" }));
+    assert.equal(res.status, 400);
+    assert.match((await res.json()).error, /Proveedor no reconocido/i);
+  });
+
   it("devuelve 400 cuando se indica proveedor sin clave", async () => {
     const res = await POST(audioRequest({ "x-provider-id": "openai" }));
     assert.equal(res.status, 400);

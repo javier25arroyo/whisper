@@ -41,7 +41,7 @@ const ADAPTERS: Record<ProviderPreset["transport"], AudioTranslator> = {
 export function getProvider(
   id: string
 ): { preset: ProviderPreset; adapter: AudioTranslator } | null {
+  if (!Object.hasOwn(PRESETS, id)) return null;
   const preset = PRESETS[id];
-  if (!preset) return null;
   return { preset, adapter: ADAPTERS[preset.transport] };
 }
