@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { parseTranslationJson } from "../src/lib/translator.ts";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { geminiProvider, GEMINI_DEFAULT_MODEL } from "../src/lib/providers/gemini.ts";
+import { openaiCompatProvider } from "../src/lib/providers/openaiCompat.ts";
 
 describe("parseTranslationJson", () => {
   it("parsea JSON limpio sin depender del proveedor", () => {
@@ -55,6 +56,83 @@ describe("geminiProvider", () => {
       assert.equal(result.translation, "Gracias");
     } finally {
       GoogleGenerativeAI.prototype.getGenerativeModel = original;
+    }
+  });
+});
+
+describe("openaiCompatProvider", () => {
+  it("solo acepta wav y mp3", () => {
+    assert.equal(openaiCompatProvider.acceptsMimeType("audio/wav"), true);
+    assert.equal(openaiCompatProvider.acceptsMimeType("audio/mpeg"), true);
+    assert.equal(openaiCompatProvider.acceptsMimeType("audio/mp4"), false);
+    assert.equal(openaiCompatProvider.acceptsMimeType("audio/webm"), false);
+  });
+
+  it("construye la petición con input_audio y devuelve el resultado parseado", async () => {
+    const originalFetch = globalThis.fetch;
+    let seenUrl = null;
+    let seenBody = null;
+    let seenAuth = null;
+    globalThis.fetch = async (url, init) => {
+      seenUrl = url;
+      seenAuth = init.headers.authorization;
+      seenBody = JSON.parse(init.body);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          choices: [
+            {
+              message: {
+                content:
+                  '{"detected_language":"es","original_text":"Buenos días","translation":"おはよう"}',
+              },
+            },
+          ],
+        }),
+      };
+    };
+    try {
+      const result = await openaiCompatProvider.translate(
+        { apiKey: "sk-secreta", model: "modelo-x", baseUrl: "https://api.ejemplo.com/v1" },
+        { audioBase64: "QUJD", mimeType: "audio/wav", direction: "es-ja" }
+      );
+      assert.equal(seenUrl, "https://api.ejemplo.com/v1/chat/completions");
+      assert.equal(seenAuth, "Bearer sk-secreta");
+      assert.equal(seenBody.model, "modelo-x");
+      const parts = seenBody.messages[0].content;
+      assert.equal(parts[1].type, "input_audio");
+      assert.equal(parts[1].input_audio.format, "wav");
+      assert.equal(parts[1].input_audio.data, "QUJD");
+      assert.equal(result.translation, "おはよう");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("lanza un error saneado que no contiene la API key", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({
+      ok: false,
+      status: 401,
+      json: async () => ({ error: { message: "Invalid key sk-secreta" } }),
+      text: async () => "Invalid key sk-secreta",
+    });
+    try {
+      await assert.rejects(
+        () =>
+          openaiCompatProvider.translate(
+            { apiKey: "sk-secreta", model: "m", baseUrl: "https://api.ejemplo.com/v1" },
+            { audioBase64: "QUJD", mimeType: "audio/wav" }
+          ),
+        (err) => {
+          assert.ok(!err.message.includes("sk-secreta"), "el error no debe filtrar la key");
+          assert.match(err.message, /401/);
+          return true;
+        }
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
     }
   });
 });
