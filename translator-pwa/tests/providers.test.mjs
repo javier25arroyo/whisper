@@ -5,6 +5,7 @@ import { parseTranslationJson } from "../src/lib/translator.ts";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { geminiProvider, GEMINI_DEFAULT_MODEL } from "../src/lib/providers/gemini.ts";
 import { openaiCompatProvider } from "../src/lib/providers/openaiCompat.ts";
+import { PRESETS, DEFAULT_PROVIDER_ID, getProvider } from "../src/lib/providers/index.ts";
 
 describe("parseTranslationJson", () => {
   it("parsea JSON limpio sin depender del proveedor", () => {
@@ -134,5 +135,39 @@ describe("openaiCompatProvider", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+});
+
+describe("registro de proveedores", () => {
+  it("devuelve preset y adaptador para un id conocido", () => {
+    const entry = getProvider("gemini");
+    assert.equal(entry.preset.transport, "gemini");
+    assert.equal(typeof entry.adapter.translate, "function");
+  });
+
+  it("devuelve null para un id desconocido", () => {
+    assert.equal(getProvider("proveedor-inventado"), null);
+    assert.equal(getProvider(""), null);
+  });
+
+  it("marca requiresWav solo en los proveedores OpenAI-compatible", () => {
+    assert.equal(PRESETS.gemini.requiresWav, false);
+    assert.equal(PRESETS.openai.requiresWav, true);
+    assert.equal(PRESETS.openrouter.requiresWav, true);
+  });
+
+  it("define baseUrl https para los compatibles y ninguno para gemini", () => {
+    assert.equal(PRESETS.gemini.baseUrl, undefined);
+    for (const id of ["openai", "openrouter"]) {
+      assert.match(PRESETS[id].baseUrl, /^https:\/\//);
+    }
+  });
+
+  it("todos los presets declaran modelo por defecto y página de claves", () => {
+    for (const preset of Object.values(PRESETS)) {
+      assert.ok(preset.defaultModel.length > 0);
+      assert.match(preset.keyUrl, /^https:\/\//);
+    }
+    assert.ok(PRESETS[DEFAULT_PROVIDER_ID]);
   });
 });
