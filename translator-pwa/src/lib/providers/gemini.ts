@@ -12,7 +12,7 @@ import type {
   TranslationResult,
 } from "./types.ts";
 
-export const GEMINI_DEFAULT_MODEL = "gemini-2.0-flash";
+export const GEMINI_DEFAULT_MODEL = "gemini-3.6-flash";
 
 export const geminiProvider: AudioTranslator = {
   // normalizeMimeType convierte cualquier entrada a uno de los formatos que Gemini admite.

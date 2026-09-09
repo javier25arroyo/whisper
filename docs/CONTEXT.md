@@ -19,6 +19,13 @@
 - **Turno (`turn`)**: unidad atómica de una conversación. Empieza cuando el micro del lado activo se abre y termina cuando se cierra (por silencio, hard-limit o gesto de cancelación).
 - **Sesión de conversación (`session_id`)**: agrupación de turnos consecutivos dentro del mismo `mode = 'conversation'`. Cambia cuando el usuario sale del modo o cierra la app.
 
+## Proveedores
+
+- **Proveedor (`provider`)**: servicio de IA que transcribe y traduce el audio. Identificado por `id` (`gemini`, `openai`, `openrouter`).
+- **Preset (`ProviderPreset`)**: descripción declarativa de un proveedor en el servidor: `baseUrl`, modelo por defecto, si exige conversión a WAV y dónde obtener una clave.
+- **Adaptador (`AudioTranslator`)**: implementación que traduce audio para una familia de API. Hay dos: nativo de Gemini y OpenAI-compatible.
+- **Ajustes de proveedor (`ProviderSettings`)**: elección del usuario guardada en el dispositivo (`id`, `apiKey`, `model` opcional). Su ausencia significa "usar la configuración del servidor".
+
 ## Estado del lado (en conversación)
 
 - **`idle`**: el lado no está escuchando ni reproduciendo. Apagado visual.

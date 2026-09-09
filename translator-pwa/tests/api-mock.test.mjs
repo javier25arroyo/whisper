@@ -292,7 +292,7 @@ describe("API Translate - Mocked Gemini 2.0 Flash E2E Execution", () => {
 
   it("returns 200 with structured JSON when Gemini returns markdown code fences", async () => {
     GoogleGenerativeAI.prototype.getGenerativeModel = function (opts) {
-      assert.equal(opts.model, "gemini-2.0-flash");
+      assert.equal(opts.model, "gemini-3.6-flash");
       return {
         generateContent: async (contents) => {
           assert.equal(contents.length, 2);

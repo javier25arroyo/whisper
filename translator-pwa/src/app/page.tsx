@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect, useReducer } from "react";
 import ConversationView from "./ConversationView";
+import SettingsSheet from "./SettingsSheet";
 import {
   initialConversationState,
   conversationReducer,
@@ -70,6 +71,7 @@ export default function Home() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showFullHistory, setShowFullHistory] = useState(false);
   const [historyDismissed, setHistoryDismissed] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   const setMode = useCallback((next: Mode) => {
     setModeState(next);
@@ -754,6 +756,14 @@ export default function Home() {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => setShowSettings(true)}
+            aria-label="Ajustes del proveedor de IA"
+            className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-800 bg-slate-900/90 text-slate-300 hover:text-white"
+          >
+            ⚙️
+          </button>
           {/* Toggle Auto-speak */}
           <div className="flex items-center gap-1.5 bg-slate-900/90 border border-slate-800 rounded-full px-2 py-1 shadow-sm">
             <span className="text-xs text-slate-300 font-medium">
@@ -1180,6 +1190,8 @@ export default function Home() {
           </p>
         </footer>
       )}
+
+      <SettingsSheet open={showSettings} onClose={() => setShowSettings(false)} />
     </main>
   );
 }
