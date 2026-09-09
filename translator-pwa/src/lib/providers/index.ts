@@ -27,7 +27,7 @@ export const PRESETS: Record<string, ProviderPreset> = {
     label: "OpenRouter",
     transport: "openai-compat",
     baseUrl: "https://openrouter.ai/api/v1",
-    defaultModel: "google/gemini-2.0-flash-001",
+    defaultModel: "google/gemini-3.8-flash",
     requiresWav: true,
     keyUrl: "https://openrouter.ai/keys",
   },

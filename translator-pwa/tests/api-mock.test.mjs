@@ -272,7 +272,7 @@ describe("API Translate - Route Handler POST Validation", () => {
   });
 });
 
-describe("API Translate - Mocked Gemini 2.0 Flash E2E Execution", () => {
+describe("API Translate - Mocked Gemini Flash E2E Execution", () => {
   let originalGetGenerativeModel;
   const originalApiKey = process.env.GEMINI_API_KEY;
 

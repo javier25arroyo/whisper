@@ -44,7 +44,7 @@ que cada usuario aporte su propia clave desde el panel de ajustes (⚙️ en la 
 |---|---|---|
 | Google Gemini | `gemini-3.6-flash` | Acepta el audio del iPhone sin conversión. Capa gratuita generosa. |
 | OpenAI | `gpt-4o-audio-preview` | Solo admite wav/mp3: el audio se convierte en el navegador. |
-| OpenRouter | `google/gemini-2.0-flash-001` | Solo admite wav/mp3: el audio se convierte en el navegador. |
+| OpenRouter | `google/gemini-3.8-flash` | Solo admite wav/mp3: el audio se convierte en el navegador. |
 
 La clave introducida en los ajustes se guarda únicamente en el navegador del dispositivo y viaja al
 backend en la cabecera `x-provider-key` de cada petición. El `baseUrl` de cada proveedor está fijado
@@ -55,7 +55,7 @@ en el servidor y no puede alterarse desde el cliente.
 - `npm run dev`: Inicia el servidor de desarrollo en `http://localhost:3000`.
 - `npm run build`: Compila la aplicación para producción con optimizaciones de Next.js.
 - `npm run start`: Inicia el servidor de producción.
-- `npm test`: Ejecuta la suite de pruebas unitarias y de integración mock (`node tests/api-mock.test.mjs`).
+- `npm test`: Ejecuta la suite completa de pruebas unitarias y de integración mock (todos los archivos `tests/*.test.mjs`).
 
 ## Verificación de Compilación y Tests
 

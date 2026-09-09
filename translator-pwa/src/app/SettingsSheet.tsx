@@ -72,6 +72,7 @@ export default function SettingsSheet({
   const handleTest = async () => {
     setTest({ status: "testing" });
     // Se guarda antes de probar para que postTranslate use estos ajustes.
+    const snapshot = loadProviderSettings();
     if (apiKey.trim()) {
       saveProviderSettings({
         id: providerId,
@@ -79,19 +80,32 @@ export default function SettingsSheet({
         model: model.trim() || undefined,
       });
     }
+    let succeeded = false;
     try {
       await postTranslate({ blob: silentWavBlob(), mimeType: "audio/wav", direction: "auto" });
       setTest({ status: "ok", message: "Conexión correcta." });
+      succeeded = true;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Error desconocido";
       // Un clip en silencio no contiene voz: que el modelo no devuelva JSON
       // significa que la clave funcionó y la petición llegó al proveedor.
       const reachedProvider = /JSON|vacía|incompleta/i.test(message);
+      succeeded = reachedProvider;
       setTest(
         reachedProvider
           ? { status: "ok", message: "Clave válida (el clip de prueba no contiene voz)." }
           : { status: "error", message }
       );
+    } finally {
+      // Si la prueba falló, no dejamos una clave rota guardada: se restaura
+      // lo que hubiera antes de pulsar "Probar conexión".
+      if (!succeeded) {
+        if (snapshot) {
+          saveProviderSettings(snapshot);
+        } else {
+          clearProviderSettings();
+        }
+      }
     }
   };
 
