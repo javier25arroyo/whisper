@@ -53,6 +53,7 @@ const SAMPLE_PHRASES: { text: string; lang: SupportedLanguage; dir: Direction }[
 const SOFT_LIMIT_SECONDS = CONVERSATION_CONSTANTS.SOFT_LIMIT_SECONDS;
 const HARD_LIMIT_SECONDS = CONVERSATION_CONSTANTS.HARD_LIMIT_SECONDS;
 const POST_TURN_PAUSE_MS = CONVERSATION_CONSTANTS.POST_TURN_PAUSE_MS;
+const SILENCE_MS = CONVERSATION_CONSTANTS.SILENCE_MS;
 const ESTIMATED_PROCESSING_MS = 5000;
 const STORAGE_MODE_KEY = "whisper_pwa_mode";
 
@@ -409,6 +410,7 @@ export default function Home() {
   const convSilence = useSilenceDetector({
     stream: convAudioStream,
     enabled: convState.es === "listening" || convState.ja === "listening",
+    silenceMs: SILENCE_MS,
     onSilence: () => {
       // Cuando se detecta silencio, detener el recorder activo y enviar a Gemini
       if (convRecorderRef.current && convRecorderRef.current.state === "recording") {

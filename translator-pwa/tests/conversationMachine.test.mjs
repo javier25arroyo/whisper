@@ -5,6 +5,7 @@ import {
   conversationReducer,
   initialConversationState,
   oppositeOfActive,
+  CONVERSATION_CONSTANTS,
 } from "../src/lib/conversationMachine.ts";
 
 /** @typedef {import("../src/lib/conversationMachine.ts").ConversationState} ConversationState */
@@ -282,5 +283,11 @@ describe("Conversation Machine - full turn cycle", () => {
     s = conversationReducer(s, { type: "OPEN_MIC", side: "ja" });
     assert.equal(s.ja, "listening");
     assert.equal(s.activeSide, "ja");
+  });
+});
+
+describe("Conversation Machine - CONVERSATION_CONSTANTS", () => {
+  it("fija el umbral de silencio en 3000ms", () => {
+    assert.equal(CONVERSATION_CONSTANTS.SILENCE_MS, 3000);
   });
 });
