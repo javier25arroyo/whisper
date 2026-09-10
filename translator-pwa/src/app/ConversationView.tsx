@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ConversationState } from "#lib/conversationMachine";
 import type { HistoryItemV2 } from "#lib/history";
 import type { SupportedLanguage } from "#lib/translator";
+import { getOrbAccessibleLabel } from "#lib/orbLabel";
 
 interface ConversationViewProps {
   state: ConversationState;
@@ -141,6 +142,7 @@ function Orb({
   turnDurationSeconds,
   softLimitSeconds,
   isNextSpeaker,
+  activeSide,
   onLongPress,
   onDoubleTap,
   onTapToStart,
@@ -152,6 +154,7 @@ function Orb({
   turnDurationSeconds: number;
   softLimitSeconds: number;
   isNextSpeaker: boolean;
+  activeSide: SupportedLanguage | null;
   onLongPress: () => void;
   onDoubleTap: () => void;
   onTapToStart: () => void;
@@ -259,9 +262,13 @@ function Orb({
 
       <button
         type="button"
-        aria-label={`Orbe ${meta.role} (${meta.name})${
-          stateValue === "idle" ? " · toca para iniciar turno" : " · toca para menú"
-        }`}
+        aria-label={getOrbAccessibleLabel({
+          side,
+          stateValue,
+          activeSide,
+          displayName: meta.name,
+          role: meta.role,
+        })}
         aria-pressed={isActive}
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
@@ -478,7 +485,7 @@ export default function ConversationView({
         <button
           type="button"
           onClick={onExit}
-          aria-label="Salir del modo conversación"
+          aria-label="Salir"
           className="text-slate-400 hover:text-white text-xs px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 transition-colors"
         >
           ✕ Salir
@@ -499,6 +506,7 @@ export default function ConversationView({
             turnDurationSeconds={turnDurationSeconds}
             softLimitSeconds={softLimitSeconds}
             isNextSpeaker={nextSpeaker === "es"}
+            activeSide={state.activeSide}
             onLongPress={() => onLongPressOrb("es")}
             onDoubleTap={() => onDoubleTapOrb("es")}
             onTapToStart={() => onOpenMic("es")}
@@ -513,6 +521,7 @@ export default function ConversationView({
             turnDurationSeconds={turnDurationSeconds}
             softLimitSeconds={softLimitSeconds}
             isNextSpeaker={nextSpeaker === "ja"}
+            activeSide={state.activeSide}
             onLongPress={() => onLongPressOrb("ja")}
             onDoubleTap={() => onDoubleTapOrb("ja")}
             onTapToStart={() => onOpenMic("ja")}

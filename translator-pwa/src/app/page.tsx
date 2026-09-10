@@ -801,6 +801,7 @@ export default function Home() {
             type="button"
             role="tab"
             aria-selected={mode === "single"}
+            aria-label="Una frase"
             onClick={() => {
               primeAudioContext();
               setMode("single");
@@ -817,6 +818,7 @@ export default function Home() {
             type="button"
             role="tab"
             aria-selected={mode === "conversation"}
+            aria-label="Conversación"
             onClick={() => {
               primeAudioContext();
               if (mode === "single") {
@@ -845,6 +847,7 @@ export default function Home() {
               return (
                 <button
                   key={opt.value}
+                  aria-label={opt.subLabel}
                   onClick={() => {
                     primeAudioContext();
                     setDirection(opt.value);
