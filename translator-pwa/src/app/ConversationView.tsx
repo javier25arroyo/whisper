@@ -11,6 +11,7 @@ interface ConversationViewProps {
   onLongPressOrb: (side: SupportedLanguage) => void;
   onDoubleTapOrb: (side: SupportedLanguage) => void;
   onOpenMic: (side: SupportedLanguage) => void;
+  onStopTurn: (side: SupportedLanguage) => void;
   onExit: () => void;
   onPlayLastTranslation: () => void;
   history: HistoryItemV2[];
@@ -146,6 +147,7 @@ function Orb({
   onLongPress,
   onDoubleTap,
   onTapToStart,
+  onStopTurn,
   onCancelActive,
   onInvertActive,
 }: {
@@ -158,6 +160,7 @@ function Orb({
   onLongPress: () => void;
   onDoubleTap: () => void;
   onTapToStart: () => void;
+  onStopTurn: () => void;
   onCancelActive: () => void;
   onInvertActive: () => void;
 }) {
@@ -191,8 +194,10 @@ function Orb({
       if (menuOpen) return;
       if (stateValue === "idle") {
         onTapToStart();
+      } else if (stateValue === "listening") {
+        onStopTurn();
       } else {
-        // Tap en orbe activo: también abre menú
+        // Tap en orbe hablando/procesando: estado informativo, abre menú
         setMenuOpen(true);
       }
     }
@@ -421,6 +426,7 @@ export default function ConversationView({
   onLongPressOrb,
   onDoubleTapOrb,
   onOpenMic,
+  onStopTurn,
   onExit,
   onPlayLastTranslation,
   history,
@@ -510,6 +516,7 @@ export default function ConversationView({
             onLongPress={() => onLongPressOrb("es")}
             onDoubleTap={() => onDoubleTapOrb("es")}
             onTapToStart={() => onOpenMic("es")}
+            onStopTurn={() => onStopTurn("es")}
             onCancelActive={() => onLongPressOrb("es")}
             onInvertActive={() => onDoubleTapOrb("es")}
           />
@@ -525,6 +532,7 @@ export default function ConversationView({
             onLongPress={() => onLongPressOrb("ja")}
             onDoubleTap={() => onDoubleTapOrb("ja")}
             onTapToStart={() => onOpenMic("ja")}
+            onStopTurn={() => onStopTurn("ja")}
             onCancelActive={() => onLongPressOrb("ja")}
             onInvertActive={() => onDoubleTapOrb("ja")}
           />

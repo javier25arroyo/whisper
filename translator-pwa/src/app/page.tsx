@@ -643,6 +643,16 @@ export default function Home() {
     [convState.activeSide, convAudioStream]
   );
 
+  const handleConvStopTurn = useCallback(
+    (side: SupportedLanguage) => {
+      if (convState[side] !== "listening") return;
+      if (convRecorderRef.current && convRecorderRef.current.state === "recording") {
+        convRecorderRef.current.stop();
+      }
+    },
+    [convState]
+  );
+
   const handleConvDoubleTapOrb = useCallback(
     (side: SupportedLanguage) => {
       if (convState[side] !== "idle") return;
@@ -847,7 +857,7 @@ export default function Home() {
               return (
                 <button
                   key={opt.value}
-                  aria-label={opt.subLabel}
+                  aria-label={opt.value === "auto" ? "Auto, detección automática" : opt.subLabel}
                   onClick={() => {
                     primeAudioContext();
                     setDirection(opt.value);
@@ -1028,6 +1038,7 @@ export default function Home() {
           onLongPressOrb={handleConvLongPressOrb}
           onDoubleTapOrb={handleConvDoubleTapOrb}
           onOpenMic={handleConvTapOrb}
+          onStopTurn={handleConvStopTurn}
           onExit={() => {
             exitConversation();
             setShowOnboarding(false);
