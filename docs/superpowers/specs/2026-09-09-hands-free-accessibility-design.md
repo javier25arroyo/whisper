@@ -12,7 +12,7 @@
 
 Dos problemas relacionados, motivados por el mismo caso de uso: el usuario no tiene movilidad en las manos y usa el iPhone únicamente con Control por voz (accesibilidad del sistema operativo iOS).
 
-1. **La grabación se corta a los ~10 segundos**, incluso cuando el usuario sigue hablando. La causa raíz no es un límite de tiempo fijo, sino un detector de silencio demasiado agresivo (700 ms) que interpreta pausas naturales al hablar como el fin del turno.
+1. **La grabación se corta de forma prematura**, incluso cuando el usuario sigue hablando — típicamente alrededor de los 3 segundos. La causa raíz no es solo que el umbral de silencio (700 ms) sea corto: hay un error en cómo se mide ese silencio que hace que, pasado aproximadamente un segundo hablando, **cualquier micro-pausa natural** (una consonante oclusiva, una inhalación) cierre el turno al instante, sin necesidad de 700 ms de silencio real. Ver sección 3 para el detalle exacto.
 2. **La app no es utilizable sin manos.** El modo conversación ya tiene, por diseño previo, una interacción táctil equivalente a lo que necesita Control por voz (un toque abre un menú con botones reales), pero los nombres accesibles de los controles son descripciones técnicas que nadie pronuncia en voz alta ("Orbe Tú (Español) · toca para menú"), no órdenes naturales.
 
 El diseño corrige ambos con cambios acotados: subir el umbral de silencio, y renombrar los controles existentes para que su nombre accesible sea exactamente lo que una persona diría en voz alta.
@@ -37,11 +37,34 @@ La alternativa —Control por voz de iOS, una función de accesibilidad del sist
 
 ## 3. Causa Raíz del Corte Prematuro
 
-`useSilenceDetector` ([useSilenceDetector.ts:9](../../../translator-pwa/src/lib/useSilenceDetector.ts)) usa un umbral de 700 ms de silencio continuo para cerrar el turno. Cualquier pausa natural al pensar o respirar más larga que eso termina la grabación. Para una frase de varias cláusulas, esa pausa suele caer alrededor de los 8-12 segundos de haber empezado a hablar — de ahí la percepción de "se corta a los diez segundos".
+Hay dos defectos distintos, y corregir solo el segundo sin el primero no resuelve el problema.
+
+### 3.1 El temporizador de silencio usa una marca de tiempo obsoleta
+
+En `useSilenceDetector` ([useSilenceDetector.ts:58-93](../../../translator-pwa/src/lib/useSilenceDetector.ts)), `lastSoundTsRef` se fija **una sola vez**, en el instante en que se confirma el inicio del sonido (línea 80, dentro del `if (!hasSoundRef.current)`). Mientras la persona sigue hablando, `hasSoundRef.current` permanece en `true`, así que esa línea no vuelve a ejecutarse — la marca de tiempo nunca se actualiza durante el habla continua.
+
+Cuando el análisis entra en la rama de silencio (línea 83-89), compara el instante actual contra esa marca **obsoleta**, no contra el último momento real de sonido:
+
+```ts
+if (lastSoundTsRef.current > 0 && now - lastSoundTsRef.current >= silenceMs) {
+  lastSoundTsRef.current = 0;
+  callbacksRef.current.onSilence?.();
+}
+```
+
+Consecuencia práctica: en cuanto el tiempo total hablado supera `silenceMs` (700 ms por defecto), **cualquier micro-caída** de energía por debajo del umbral RMS —una consonante oclusiva, una inhalación breve, el hueco natural entre dos palabras— dispara el cierre de inmediato. No hace falta silencio real sostenido, basta un solo frame de análisis por debajo del umbral. El punto exacto donde ocurre depende de dónde caiga la primera micro-pausa después de ese primer segundo hablando; para el patrón de habla natural del usuario, eso suele coincidir con una pausa real de respiración alrededor de los 3 segundos — de ahí la observación correcta de que el corte llega "a los tres segundos de que no se esté hablando", no tras 700 ms de silencio verdadero.
+
+**Corrección:** refrescar `lastSoundTsRef.current = now` en cada frame donde `isSound` sea verdadero, no solo la primera vez. Así el temporizador mide silencio real transcurrido desde el último sonido detectado, no desde el inicio de la frase.
+
+### 3.2 El umbral de silencio, una vez medido correctamente, sigue siendo corto
+
+Con 3.1 corregido, el detector mide silencio real — pero 700 ms sigue siendo insuficiente: cualquier pausa natural al pensar o respirar más larga que eso seguiría cerrando el turno antes de que la persona termine de hablar.
 
 **Decisión:** subir el umbral a **3000 ms** (constante, no configurable — YAGNI, nadie pidió un control deslizante). El límite duro de seguridad (`HARD_LIMIT_SECONDS = 45`, en [conversationMachine.ts:174](../../../translator-pwa/src/lib/conversationMachine.ts)) no cambia; sigue siendo la red de seguridad si alguien queda en silencio sin querer cerrar el turno.
 
 El valor pasa a vivir en `CONVERSATION_CONSTANTS` junto a `SOFT_LIMIT_SECONDS`/`HARD_LIMIT_SECONDS`/`POST_TURN_PAUSE_MS` (mismo objeto, mismo archivo), en vez de quedar como el valor por defecto implícito del hook `useSilenceDetector`. Es el único lugar donde hoy se centralizan los tiempos de la conversación; dejarlo fuera de ahí sería inconsistente con el patrón ya establecido.
+
+**Ambos cambios son necesarios juntos.** Subir solo el umbral (3.2) sin arreglar la marca de tiempo obsoleta (3.1) no soluciona nada de fondo: simplemente desplazaría el problema a partir de los 3 segundos de habla total en vez de 0.7 — el mismo corte errático en el primer micro-hueco, solo que exigiría hablar un poco más antes de manifestarse.
 
 ---
 
@@ -92,6 +115,7 @@ Tres niveles, porque Control por voz es una función del sistema operativo que n
 
 ### 6.1 Automatizado (`node --test`, sin dependencias nuevas)
 
+- **La lógica de detección de silencio** (qué hace cada muestra RMS al estado interno: iniciar sonido, seguir en sonido, iniciar silencio, disparar `onSilence`) se extrae de `useSilenceDetector` a una función pura de transición de estado, testeable sin `AudioContext` ni `requestAnimationFrame` — el hook pasa a ser una envoltura fina que llama a esa función en cada frame. Caso crítico a cubrir, el que motivó esta corrección: una secuencia de muestras que simula hablar 2 segundos con una caída de energía de una sola muestra a mitad (un micro-hueco entre palabras) **no** debe disparar `onSilence` — solo debe dispararse tras `silenceMs` continuos de muestras por debajo del umbral.
 - Test de que `CONVERSATION_CONSTANTS.SILENCE_MS === 3000`.
 - La función que decide la etiqueta del orbe (estado + quién está activo → texto) se extrae como función pura, testeable de forma aislada — mismo patrón que el resto del proyecto (lógica en una función, la UI solo la invoca). Casos a cubrir: este lado escuchando, este lado hablando/procesando, inactivo y libre, inactivo y bloqueado por el otro lado.
 
