@@ -126,6 +126,7 @@ Confirmar en el DOM real que cada `aria-label` sale exactamente como se diseñó
 ### 6.3 Validación real del usuario en su iPhone (no delegable)
 
 - Activar "Mostrar nombres" de Control por voz y confirmar que cada control lee el nombre corto esperado.
+- Además de leer el nombre, activar cada control por voz (tocarlo diciendo su nombre en voz alta) y confirmar que realmente ejecuta la acción indicada por su etiqueta — leer el nombre y activar el control son dos comprobaciones distintas.
 - Una conversación completa usando solo la voz: "hablar en español" → hablar → esperar los 3 s o decir "detener grabación" → confirmar que traduce.
 - Probar "cancelar este turno" a mitad de una grabación.
 
