@@ -10,7 +10,10 @@ export interface SilenceDetectorOptions {
   stream: MediaStream | null;
   /** Umbral RMS por debajo del cual se considera silencio. Default 0.01 (≈ -45 dBFS). */
   threshold?: number;
-  /** Milisegundos continuos de silencio para emitir `onSilence`. Default 700ms. */
+  /** Milisegundos continuos de silencio para emitir `onSilence`. Default 700ms —
+   * el modo conversación real (ver `conversationMachine.ts`) llama a este hook con
+   * `CONVERSATION_CONSTANTS.SILENCE_MS` (3000ms), así que 700ms sólo aplica como
+   * fallback para cualquier otro caller que no pase su propio valor. */
   silenceMs?: number;
   /** Milisegundos de sonido continuo para emitir `onSoundStart`. Default 100ms. */
   soundStartMs?: number;

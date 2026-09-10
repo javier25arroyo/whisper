@@ -11,7 +11,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "node --test tests/api-mock.test.mjs tests/conversationMachine.test.mjs tests/history.test.mjs tests/orbLabel.test.mjs tests/providers.test.mjs tests/providerSettings.test.mjs tests/route-provider.test.mjs tests/silenceDetection.test.mjs tests/wavEncoder.test.mjs"
+    "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",

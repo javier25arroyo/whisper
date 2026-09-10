@@ -68,6 +68,9 @@ export function stepSilenceDetection(
     }
   } else {
     firstSoundTs = null;
+    // ceiling: un hablante cuyo RMS oscile justo alrededor de threshold puede no
+    // volver a confirmar sonido tras un micro-hueco, congelando lastSoundTs. Aceptado
+    // por ahora; no se corrige en este cambio.
     hasSound = false;
     if (lastSoundTs > 0 && now - lastSoundTs >= params.silenceMs) {
       lastSoundTs = 0;
