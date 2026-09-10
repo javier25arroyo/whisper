@@ -1,4 +1,9 @@
 import { useEffect, useRef, useCallback } from "react";
+import {
+  stepSilenceDetection,
+  initialSilenceDetectionState,
+  type SilenceDetectionState,
+} from "./silenceDetection.ts";
 
 export interface SilenceDetectorOptions {
   /** Stream de audio a analizar. Típicamente un MediaStream del getUserMedia. */
@@ -47,10 +52,8 @@ export function useSilenceDetector(options: SilenceDetectorOptions): SilenceDete
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const rafRef = useRef<number | null>(null);
   const bufferRef = useRef<Float32Array<ArrayBuffer> | null>(null);
-  const lastSoundTsRef = useRef<number>(0);
-  const firstSoundTsRef = useRef<number | null>(null);
+  const detectionStateRef = useRef<SilenceDetectionState>(initialSilenceDetectionState);
   const isRunningRef = useRef<boolean>(false);
-  const hasSoundRef = useRef<boolean>(false);
 
   const callbacksRef = useRef({ onSoundStart, onSilence, onLevel });
   callbacksRef.current = { onSoundStart, onSilence, onLevel };
@@ -67,27 +70,14 @@ export function useSilenceDetector(options: SilenceDetectorOptions): SilenceDete
     callbacksRef.current.onLevel?.(rms);
 
     const now = performance.now();
-    const isSound = rms >= threshold;
-
-    if (isSound) {
-      if (firstSoundTsRef.current === null) {
-        firstSoundTsRef.current = now;
-      } else if (
-        now - firstSoundTsRef.current >= soundStartMs &&
-        !hasSoundRef.current
-      ) {
-        hasSoundRef.current = true;
-        lastSoundTsRef.current = now;
-        callbacksRef.current.onSoundStart?.();
-      }
-    } else {
-      firstSoundTsRef.current = null;
-      hasSoundRef.current = false;
-      if (lastSoundTsRef.current > 0 && now - lastSoundTsRef.current >= silenceMs) {
-        lastSoundTsRef.current = 0;
-        callbacksRef.current.onSilence?.();
-      }
-    }
+    const { state, events } = stepSilenceDetection(detectionStateRef.current, rms, now, {
+      threshold,
+      silenceMs,
+      soundStartMs,
+    });
+    detectionStateRef.current = state;
+    if (events.soundStart) callbacksRef.current.onSoundStart?.();
+    if (events.silence) callbacksRef.current.onSilence?.();
 
     rafRef.current = requestAnimationFrame(tick);
   }, [threshold, silenceMs, soundStartMs]);
@@ -110,9 +100,7 @@ export function useSilenceDetector(options: SilenceDetectorOptions): SilenceDete
       analyserRef.current = analyser;
       sourceRef.current = source;
       bufferRef.current = buffer;
-      lastSoundTsRef.current = 0;
-      firstSoundTsRef.current = null;
-      hasSoundRef.current = false;
+      detectionStateRef.current = initialSilenceDetectionState;
       isRunningRef.current = true;
 
       rafRef.current = requestAnimationFrame(tick);
@@ -151,9 +139,7 @@ export function useSilenceDetector(options: SilenceDetectorOptions): SilenceDete
     }
     audioContextRef.current = null;
     bufferRef.current = null;
-    lastSoundTsRef.current = 0;
-    firstSoundTsRef.current = null;
-    hasSoundRef.current = false;
+    detectionStateRef.current = initialSilenceDetectionState;
   }, []);
 
   useEffect(() => {
