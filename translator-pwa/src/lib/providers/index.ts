@@ -31,6 +31,15 @@ export const PRESETS: Record<string, ProviderPreset> = {
     requiresWav: true,
     keyUrl: "https://openrouter.ai/keys",
   },
+  nvidia: {
+    id: "nvidia",
+    label: "NVIDIA (Nemotron Omni, via OpenRouter)",
+    transport: "openai-compat",
+    baseUrl: "https://openrouter.ai/api/v1",
+    defaultModel: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+    requiresWav: true,
+    keyUrl: "https://openrouter.ai/keys",
+  },
 };
 
 const ADAPTERS: Record<ProviderPreset["transport"], AudioTranslator> = {
