@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useEffect, useReducer } from "react";
 import ConversationView from "./ConversationView";
 import SettingsSheet from "./SettingsSheet";
+import EmergencySheet from "./EmergencySheet";
 import {
   initialConversationState,
   conversationReducer,
@@ -73,6 +74,7 @@ export default function Home() {
   const [showFullHistory, setShowFullHistory] = useState(false);
   const [historyDismissed, setHistoryDismissed] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showEmergency, setShowEmergency] = useState(false);
 
   const setMode = useCallback((next: Mode) => {
     setModeState(next);
@@ -750,7 +752,11 @@ export default function Home() {
   // =========================
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100 flex flex-col max-w-lg mx-auto pb-6">
+    <>
+    <main
+      className="min-h-screen bg-slate-950 text-slate-100 flex flex-col max-w-lg mx-auto pb-6"
+      {...(showEmergency ? { inert: true } : {})}
+    >
       {/* Header */}
       <header className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-slate-900/80 gap-2">
         <div className="flex items-center gap-3 min-w-0">
@@ -768,6 +774,18 @@ export default function Home() {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => {
+              if (isRecording) stopRecordingSingle();
+              exitConversation();
+              setShowEmergency(true);
+            }}
+            aria-label="SOS Emergencia"
+            className="flex h-9 min-w-[3.25rem] items-center justify-center rounded-full bg-red-600 px-3 font-black text-white text-sm ring-1 ring-red-300/40 shadow-lg shadow-red-950/50"
+          >
+            SOS
+          </button>
           <button
             type="button"
             onClick={() => setShowSettings(true)}
@@ -1209,5 +1227,7 @@ export default function Home() {
 
       <SettingsSheet open={showSettings} onClose={() => setShowSettings(false)} />
     </main>
+    <EmergencySheet open={showEmergency} onClose={() => setShowEmergency(false)} />
+    </>
   );
 }
