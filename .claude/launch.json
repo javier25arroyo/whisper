@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "translator-pwa",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "translator-pwa", "run", "dev"],
+      "port": 3000
+    }
+  ]
+}

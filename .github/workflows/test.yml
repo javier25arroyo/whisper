@@ -33,7 +33,7 @@ jobs:
             ${{ runner.os }}-pip-pre-commit
       - name: pre-commit
         run: |
-          pip install --upgrade pre-commit
+          pip install --quiet --disable-pip-version-check --upgrade pre-commit
           pre-commit install --install-hooks
           pre-commit run --all-files
   whisper-test:
@@ -72,8 +72,8 @@ jobs:
             numpy-requirement: "'numpy'"
     steps:
       - uses: conda-incubator/setup-miniconda@fc2d68f6413eb2d87b895e92f8584b5b94a10167 # v3
-      - run: conda install -n test ffmpeg python=${{ matrix.python-version }}
+      - run: conda install --quiet -n test ffmpeg python=${{ matrix.python-version }}
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - run: echo "$CONDA/envs/test/bin" >> $GITHUB_PATH
-      - run: pip3 install .["dev"] ${{ matrix.numpy-requirement }} torch==${{ matrix.pytorch-version }}+cpu --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
-      - run: pytest --durations=0 -vv -k 'not test_transcribe or test_transcribe[tiny] or test_transcribe[tiny.en]' -m 'not requires_cuda'
+      - run: pip3 install --quiet --disable-pip-version-check .["dev"] ${{ matrix.numpy-requirement }} torch==${{ matrix.pytorch-version }}+cpu --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
+      - run: pytest -q --tb=short --disable-warnings --durations=20 -k 'not test_transcribe or test_transcribe[tiny] or test_transcribe[tiny.en]' -m 'not requires_cuda'
