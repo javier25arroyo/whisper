@@ -24,8 +24,18 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: "cover",
-  themeColor: "#020617",
+  themeColor: "#171310",
 };
+
+// Evita el flash de tema incorrecto: se aplica antes de la hidratación de React.
+const THEME_INIT_SCRIPT = `
+try {
+  var t = localStorage.getItem("whisper_pwa_theme");
+  document.documentElement.setAttribute("data-theme", t === "light" ? "light" : "dark");
+} catch (e) {
+  document.documentElement.setAttribute("data-theme", "dark");
+}
+`;
 
 export default function RootLayout({
   children,
@@ -33,13 +43,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="es" className="dark">
+    <html lang="es" suppressHydrationWarning>
       <head>
         <link rel="apple-touch-icon" href="/icons/icon-192.png" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
-      <body className="min-h-screen bg-slate-950 text-slate-100 antialiased selection:bg-violet-600 selection:text-white">
+      <body className="min-h-screen bg-bg text-fg antialiased selection:bg-es-500 selection:text-white">
         {children}
       </body>
     </html>

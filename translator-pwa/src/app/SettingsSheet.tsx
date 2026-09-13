@@ -9,6 +9,7 @@ import {
 } from "#lib/providerSettings";
 import { postTranslate } from "#lib/apiClient";
 import { encodeWav, TARGET_SAMPLE_RATE } from "#lib/wavEncoder";
+import { X } from "lucide-react";
 
 type TestState = { status: "idle" | "testing" | "ok" | "error"; message?: string };
 
@@ -110,39 +111,39 @@ export default function SettingsSheet({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 sm:items-center sm:p-4">
-      <div className="w-full max-w-lg rounded-t-3xl border border-slate-800 bg-slate-950 p-5 shadow-2xl sm:rounded-3xl">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4">
+      <div className="w-full max-w-lg rounded-t-lg border border-line bg-bg-elevated p-5 shadow-lg sm:rounded-lg">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-base font-bold text-white">Proveedor de IA</h2>
+          <h2 className="text-base font-bold text-fg">Proveedor de IA</h2>
           <button
             type="button"
             onClick={onClose}
             aria-label="Cerrar ajustes"
-            className="rounded-lg bg-slate-900 px-3 py-1 text-slate-400 hover:text-white"
+            className="rounded-md bg-surface-muted p-1.5 text-fg-muted hover:text-fg"
           >
-            ✕
+            <X className="w-4 h-4" />
           </button>
         </div>
 
         {usingServer && (
-          <p className="mb-4 rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-xs text-slate-300">
+          <p className="mb-4 rounded-lg border border-line bg-surface p-3 text-xs text-fg-muted">
             Usando la configuración del servidor. Añade tu propia clave solo si quieres usar otro
             proveedor o tu propia cuota.
           </p>
         )}
 
         <fieldset className="mb-4">
-          <legend className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-400">
+          <legend className="mb-2 text-xs font-bold uppercase tracking-wider text-fg-muted">
             Proveedor
           </legend>
           <div className="space-y-2">
             {Object.values(PRESETS).map((p) => (
               <label
                 key={p.id}
-                className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 text-sm ${
+                className={`flex cursor-pointer items-center gap-3 rounded-lg border p-3 text-sm ${
                   providerId === p.id
-                    ? "border-violet-600 bg-violet-950/40 text-white"
-                    : "border-slate-800 bg-slate-900/60 text-slate-300"
+                    ? "border-fg bg-surface-muted text-fg"
+                    : "border-line bg-surface text-fg-muted"
                 }`}
               >
                 <input
@@ -154,18 +155,18 @@ export default function SettingsSheet({
                     setProviderId(p.id);
                     setTest({ status: "idle" });
                   }}
-                  className="accent-violet-600"
+                  className="accent-fg"
                 />
                 <span className="flex-1">{p.label}</span>
                 {p.requiresWav && (
-                  <span className="text-[10px] text-slate-500">convierte el audio</span>
+                  <span className="text-[10px] text-fg-faint">convierte el audio</span>
                 )}
               </label>
             ))}
           </div>
         </fieldset>
 
-        <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-400">
+        <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-fg-muted">
           API key
         </label>
         <input
@@ -174,18 +175,18 @@ export default function SettingsSheet({
           onChange={(e) => setApiKey(e.target.value)}
           placeholder="Pega aquí tu clave"
           autoComplete="off"
-          className="mb-1 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white"
+          className="mb-1 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-fg"
         />
         <a
           href={preset.keyUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="mb-4 inline-block text-xs text-violet-400 underline"
+          className="mb-4 inline-block text-xs text-es-600 underline"
         >
           Obtener una clave de {preset.label}
         </a>
 
-        <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-slate-400">
+        <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-fg-muted">
           Modelo (opcional)
         </label>
         <input
@@ -193,17 +194,17 @@ export default function SettingsSheet({
           value={model}
           onChange={(e) => setModel(e.target.value)}
           placeholder={preset.defaultModel}
-          className="mb-4 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-sm text-white"
+          className="mb-4 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-fg"
         />
 
         {test.status !== "idle" && (
           <p
-            className={`mb-3 rounded-xl p-3 text-xs ${
+            className={`mb-3 rounded-lg p-3 text-xs ${
               test.status === "ok"
-                ? "bg-emerald-950/60 text-emerald-200"
+                ? "bg-success/10 text-success"
                 : test.status === "error"
-                ? "bg-red-950/60 text-red-200"
-                : "bg-slate-900 text-slate-300"
+                ? "bg-danger-surface text-danger"
+                : "bg-surface text-fg-muted"
             }`}
           >
             {test.status === "testing" ? "Probando conexión…" : test.message}
@@ -215,7 +216,7 @@ export default function SettingsSheet({
             type="button"
             onClick={handleTest}
             disabled={!apiKey.trim() || test.status === "testing"}
-            className="flex-1 rounded-xl bg-slate-800 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+            className="flex-1 rounded-lg bg-surface-muted py-2.5 text-sm font-semibold text-fg disabled:opacity-50"
           >
             Probar conexión
           </button>
@@ -223,7 +224,7 @@ export default function SettingsSheet({
             type="button"
             onClick={handleSave}
             disabled={!apiKey.trim()}
-            className="flex-1 rounded-xl bg-violet-600 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+            className="flex-1 rounded-lg bg-fg py-2.5 text-sm font-semibold text-bg disabled:opacity-50"
           >
             Guardar
           </button>
@@ -232,12 +233,12 @@ export default function SettingsSheet({
         <button
           type="button"
           onClick={handleClear}
-          className="mt-3 w-full text-xs text-slate-500 hover:text-slate-300"
+          className="mt-3 w-full text-xs text-fg-faint hover:text-fg-muted"
         >
           Borrar clave y volver a la configuración del servidor
         </button>
 
-        <p className="mt-4 text-[11px] leading-relaxed text-slate-500">
+        <p className="mt-4 text-[11px] leading-relaxed text-fg-faint">
           La clave se guarda solo en este dispositivo, en el almacenamiento del navegador. Quien
           tenga acceso al teléfono desbloqueado puede leerla. Puedes revocarla en cualquier momento
           desde el panel de tu proveedor.

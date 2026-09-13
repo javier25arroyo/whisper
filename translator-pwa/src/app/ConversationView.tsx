@@ -5,6 +5,9 @@ import type { ConversationState } from "#lib/conversationMachine";
 import type { HistoryItemV2 } from "#lib/history";
 import type { SupportedLanguage } from "#lib/translator";
 import { getOrbAccessibleLabel } from "#lib/orbLabel";
+import { SIDE_FLAVOR } from "#lib/uiCopy";
+import { SunWarmIcon, SunDawnIcon } from "../components/icons";
+import { Square, ArrowLeftRight, Mic, Volume2, X, AlertTriangle } from "lucide-react";
 
 interface ConversationViewProps {
   state: ConversationState;
@@ -23,35 +26,43 @@ interface ConversationViewProps {
 }
 
 interface SideMeta {
-  flag: string;
   name: string;
   role: string;
-  gradient: string;
-  ring: string;
-  bg: string;
-  bgFaded: string;
+  accent: "es" | "ja";
 }
 
 const SIDE_META: Record<SupportedLanguage, SideMeta> = {
+  es: { name: "Español", role: "Tú", accent: "es" },
+  ja: { name: "日本語", role: "Otro", accent: "ja" },
+};
+
+const ACCENT_CLASSES: Record<
+  "es" | "ja",
+  { gradient: string; ring: string; bg: string; bgFaded: string; text: string; surface: string; border: string }
+> = {
   es: {
-    flag: "🇲🇽",
-    name: "Español",
-    role: "Tú",
-    gradient: "from-emerald-500 to-teal-500",
-    ring: "ring-emerald-400",
-    bg: "bg-emerald-500",
-    bgFaded: "bg-emerald-500/20",
+    gradient: "from-es-500 to-es-700",
+    ring: "ring-es-500",
+    bg: "bg-es-500",
+    bgFaded: "bg-es-500/20",
+    text: "text-es-700",
+    surface: "bg-es-surface",
+    border: "border-es-500/30",
   },
   ja: {
-    flag: "🇯🇵",
-    name: "日本語",
-    role: "Otro",
-    gradient: "from-violet-600 to-indigo-500",
-    ring: "ring-violet-400",
-    bg: "bg-violet-500",
-    bgFaded: "bg-violet-500/20",
+    gradient: "from-ja-500 to-ja-700",
+    ring: "ring-ja-500",
+    bg: "bg-ja-500",
+    bgFaded: "bg-ja-500/20",
+    text: "text-ja-700",
+    surface: "bg-ja-surface",
+    border: "border-ja-500/30",
   },
 };
+
+function SideIcon({ side, className }: { side: SupportedLanguage; className?: string }) {
+  return side === "es" ? <SunWarmIcon className={className} /> : <SunDawnIcon className={className} />;
+}
 
 function opposite(side: SupportedLanguage): SupportedLanguage {
   return side === "es" ? "ja" : "es";
@@ -87,7 +98,7 @@ function OrbContextMenu({
   onInvert: () => void;
   position: "below-es" | "below-ja";
 }) {
-  const meta = SIDE_META[side];
+  const accent = ACCENT_CLASSES[SIDE_META[side].accent];
   const ref = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -105,7 +116,7 @@ function OrbContextMenu({
   return (
     <div
       ref={ref}
-      className={`absolute z-20 ${position === "below-es" ? "top-3" : "bottom-3"} left-1/2 -translate-x-1/2 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl shadow-black/60 p-2 flex flex-col gap-1 min-w-[10rem] animate-in fade-in slide-in-from-top-2 duration-150`}
+      className={`absolute z-20 ${position === "below-es" ? "top-3" : "bottom-3"} left-1/2 -translate-x-1/2 bg-bg-elevated border border-line rounded-lg shadow-lg p-2 flex flex-col gap-1 min-w-[10rem] panel-in`}
       onClick={(e) => e.stopPropagation()}
       role="menu"
     >
@@ -116,9 +127,9 @@ function OrbContextMenu({
           onCancel();
           onClose();
         }}
-        className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold text-red-300 hover:bg-red-950/60 hover:text-red-200 transition-colors"
+        className="flex items-center gap-2 px-3 py-2 rounded-md text-xs font-semibold text-danger hover:bg-danger-surface transition-colors duration-base"
       >
-        <span aria-hidden="true">⏹</span>
+        <Square className="w-3.5 h-3.5" fill="currentColor" />
         <span>Cancelar este turno</span>
       </button>
       <button
@@ -128,9 +139,9 @@ function OrbContextMenu({
           onInvert();
           onClose();
         }}
-        className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold ${meta.bgFaded} text-white hover:bg-slate-800 transition-colors`}
+        className={`flex items-center gap-2 px-3 py-2 rounded-md text-xs font-semibold ${accent.bgFaded} text-fg hover:bg-surface-muted transition-colors duration-base`}
       >
-        <span aria-hidden="true">🔁</span>
+        <ArrowLeftRight className="w-3.5 h-3.5" />
         <span>Pasar al otro lado</span>
       </button>
     </div>
@@ -165,6 +176,7 @@ function Orb({
   onInvertActive: () => void;
 }) {
   const meta = SIDE_META[side];
+  const accent = ACCENT_CLASSES[meta.accent];
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -223,7 +235,7 @@ function Orb({
 
   return (
     <div
-      className={`relative flex flex-col items-center justify-center gap-3 px-5 py-3 select-none transition-opacity duration-300 ${
+      className={`relative flex flex-col items-center justify-center gap-3 px-5 py-3 select-none transition-opacity duration-slow ${
         isActive ? "opacity-100" : isNext ? "opacity-100" : "opacity-50"
       }`}
     >
@@ -239,25 +251,24 @@ function Orb({
 
       <div className="text-center">
         <div className="flex items-center justify-center gap-2">
-          <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">
+          <span className="text-[10px] text-fg-faint uppercase font-bold tracking-wider">
             {meta.role}
           </span>
         </div>
         <div className="flex items-center justify-center gap-2 mt-0.5">
-          <span className="text-2xl" aria-hidden="true">
-            {meta.flag}
-          </span>
-          <span className="text-white font-bold text-base tracking-tight">{meta.name}</span>
+          <SideIcon side={side} className={`w-5 h-5 ${accent.text}`} />
+          <span className="text-fg font-bold text-base tracking-tight">{meta.name}</span>
         </div>
+        <p className={`text-[11px] mt-0.5 leading-snug ${accent.text} opacity-80`}>{SIDE_FLAVOR[side]}</p>
         <div
-          className={`text-[11px] mt-0.5 uppercase tracking-wider flex items-center justify-center gap-1 ${
+          className={`text-[11px] mt-1 uppercase tracking-wider flex items-center justify-center gap-1 ${
             isActive
               ? stateValue === "listening"
-                ? "text-emerald-400 font-semibold"
+                ? "text-success font-semibold"
                 : stateValue === "speaking"
-                ? "text-violet-300 font-semibold"
-                : "text-amber-400 font-semibold"
-              : "text-slate-500"
+                ? `${accent.text} font-semibold`
+                : "text-amber-500 font-semibold"
+              : "text-fg-faint"
           }`}
         >
           <span>{orbStateLabel(stateValue)}</span>
@@ -280,56 +291,48 @@ function Orb({
         onPointerLeave={handlePointerLeave}
         onPointerCancel={handlePointerLeave}
         onDoubleClick={onDoubleTap}
-        className={`relative w-32 h-32 rounded-full flex items-center justify-center text-3xl select-none touch-manipulation transition-all duration-200 ${
+        className={`relative w-32 h-32 rounded-full flex items-center justify-center text-3xl select-none touch-manipulation transition-all duration-base ease-out ${
           stateValue === "listening"
-            ? `bg-gradient-to-br ${meta.gradient} shadow-2xl scale-105 ring-4 ${meta.ring}`
+            ? `bg-gradient-to-br ${accent.gradient} shadow-lg scale-105 ring-4 ${accent.ring}`
             : stateValue === "speaking"
-            ? `bg-gradient-to-br ${meta.gradient} shadow-2xl ring-4 ${meta.ring}`
+            ? `bg-gradient-to-br ${accent.gradient} shadow-lg ring-4 ${accent.ring}`
             : stateValue === "processing"
-            ? "bg-slate-800 ring-4 ring-amber-400/50"
+            ? "bg-surface-muted ring-4 ring-amber-400/50"
             : isNext
-            ? `bg-slate-800 ring-2 ${meta.ring} animate-pulse`
-            : "bg-slate-900 ring-2 ring-slate-800"
+            ? `bg-surface-muted ring-2 ${accent.ring} animate-pulse`
+            : "bg-surface ring-2 ring-line"
         } ${isOverSoftLimit && stateValue === "listening" ? "animate-pulse" : ""}`}
       >
         {stateValue === "listening" && (
           <>
-            <span
-              className={`absolute w-32 h-32 rounded-full ${meta.bgFaded} recording-ring pointer-events-none`}
-            />
-            <span
-              className={`absolute w-32 h-32 rounded-full ${meta.bg} opacity-10 recording-ring-2 pointer-events-none`}
-            />
+            <span className={`absolute w-32 h-32 rounded-full ${accent.bgFaded} recording-ring pointer-events-none`} />
+            <span className={`absolute w-32 h-32 rounded-full ${accent.bg} opacity-10 recording-ring-2 pointer-events-none`} />
           </>
         )}
         {stateValue === "speaking" && (
           <>
-            <span
-              className={`absolute w-32 h-32 rounded-full ${meta.bgFaded} recording-ring pointer-events-none`}
-            />
-            <span
-              className={`absolute w-32 h-32 rounded-full ${meta.bg} opacity-10 recording-ring-2 pointer-events-none`}
-            />
+            <span className={`absolute w-32 h-32 rounded-full ${accent.bgFaded} recording-ring pointer-events-none`} />
+            <span className={`absolute w-32 h-32 rounded-full ${accent.bg} opacity-10 recording-ring-2 pointer-events-none`} />
           </>
         )}
         {stateValue === "processing" ? (
           <div className="w-8 h-8 border-[3px] border-white border-t-transparent rounded-full animate-spin" />
         ) : stateValue === "idle" ? (
           isNext ? (
-            <span className="text-2xl" aria-hidden="true">
-              {meta.flag}
-            </span>
+            <SideIcon side={side} className="w-8 h-8 text-white icon-swap" />
           ) : (
-            <span aria-hidden="true">🎙️</span>
+            <Mic className="w-8 h-8 text-fg-faint icon-swap" />
           )
+        ) : stateValue === "speaking" ? (
+          <Volume2 className="w-8 h-8 text-white icon-speaking" />
         ) : (
-          <span aria-hidden="true">🔊</span>
+          <Mic className="w-8 h-8 text-white icon-swap" />
         )}
       </button>
 
       <p
         className={`text-[10px] text-center leading-tight max-w-[14rem] ${
-          isActive ? "text-slate-300" : "text-slate-500"
+          isActive ? "text-fg-muted" : "text-fg-faint"
         }`}
       >
         {stateValue === "listening" &&
@@ -356,32 +359,31 @@ function OnboardingToast({
 }) {
   const meta = SIDE_META[side];
   const otherMeta = SIDE_META[opposite(side)];
+  const accent = ACCENT_CLASSES[meta.accent];
 
   return (
     <div
       role="status"
       aria-live="polite"
-      className="mx-5 mb-3 bg-violet-950/80 border border-violet-700/40 rounded-2xl p-3 shadow-lg flex items-start gap-3 animate-in fade-in slide-in-from-top-2 duration-200"
+      className={`mx-5 mb-3 ${accent.surface} border ${accent.border} rounded-lg p-3 shadow-md flex items-start gap-3 panel-in`}
     >
-      <span className="text-2xl shrink-0" aria-hidden="true">
-        🗣️
-      </span>
+      <SideIcon side={side} className={`w-6 h-6 shrink-0 mt-0.5 ${accent.text}`} />
       <div className="flex-1 min-w-0">
-        <p className="text-white text-sm font-bold leading-snug">
+        <p className="text-fg text-sm font-bold leading-snug">
           Habla ahora en {meta.name}
         </p>
-        <p className="text-violet-200 text-[11px] leading-snug mt-0.5">
-          {meta.flag} Te escucho. {otherMeta.flag} {otherMeta.role} habla cuando aparezca el orbe{" "}
-          {otherMeta.name}.
+        <p className={`text-[11px] leading-snug mt-0.5 ${accent.text} opacity-90`}>{SIDE_FLAVOR[side]}</p>
+        <p className="text-fg-muted text-[11px] leading-snug mt-1">
+          Te escucho. {otherMeta.role} habla cuando aparezca el orbe {otherMeta.name}.
         </p>
       </div>
       <button
         type="button"
         onClick={onDismiss}
         aria-label="Cerrar ayuda"
-        className="text-violet-300 hover:text-white text-xs px-2 py-1 rounded-lg bg-violet-900/40"
+        className="text-fg-muted hover:text-fg p-1 rounded-md bg-surface-muted"
       >
-        ✕
+        <X className="w-3.5 h-3.5" />
       </button>
     </div>
   );
@@ -399,24 +401,25 @@ function LastTranslation({
   if (!text) return null;
   const targetLang = detected ? opposite(detected) : "es";
   const meta = SIDE_META[targetLang];
+  const accent = ACCENT_CLASSES[meta.accent];
 
   return (
-    <div className="mx-5 mb-4 bg-slate-900/90 border border-violet-700/40 rounded-2xl p-3 shadow-lg animate-in fade-in duration-200">
+    <div className={`mx-5 mb-4 bg-surface border ${accent.border} rounded-lg p-3 shadow-md fade-in-simple`}>
       <div className="flex items-center justify-between mb-1.5">
-        <span className="text-violet-300 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5">
-          <span>{meta.flag}</span>
+        <span className={`text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 ${accent.text}`}>
+          <SideIcon side={targetLang} className="w-3.5 h-3.5" />
           <span>Última traducción → {meta.role}</span>
         </span>
         <button
           type="button"
           aria-label="Reproducir última traducción"
           onClick={onPlay}
-          className="w-7 h-7 rounded-lg bg-violet-900/60 hover:bg-violet-800 text-violet-200 hover:text-white flex items-center justify-center text-xs transition-colors"
+          className={`w-7 h-7 rounded-md ${accent.bgFaded} hover:opacity-80 ${accent.text} flex items-center justify-center transition-colors duration-base`}
         >
-          🔊
+          <Volume2 className="w-3.5 h-3.5" />
         </button>
       </div>
-      <p className="text-white text-sm leading-relaxed break-words font-semibold">{text}</p>
+      <p className="text-fg text-sm leading-relaxed break-words font-semibold">{text}</p>
     </div>
   );
 }
@@ -476,13 +479,13 @@ export default function ConversationView({
   return (
     <div className="flex flex-col flex-1" data-testid="conversation-view">
       {/* Barra superior de sesión */}
-      <div className="px-5 pt-3 pb-2 flex items-center justify-between border-b border-slate-900/80">
+      <div className="px-5 pt-3 pb-2 flex items-center justify-between border-b border-line">
         <div className="flex items-center gap-2">
           <span className="relative flex h-2 w-2">
-            <span className="absolute inline-flex h-full w-full rounded-full bg-violet-400 opacity-75 animate-ping" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-violet-500" />
+            <span className="absolute inline-flex h-full w-full rounded-full bg-fg opacity-40 animate-ping" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-fg" />
           </span>
-          <span className="text-slate-300 text-xs font-medium">
+          <span className="text-fg-muted text-xs font-medium">
             Sesión activa · turno {state.turnIndex + 1}
             {sessionTurnCount > 0 && ` · ${sessionTurnCount} traducidos`}
             {isProcessing && ` · ~${remainingSeconds}s`}
@@ -492,9 +495,10 @@ export default function ConversationView({
           type="button"
           onClick={onExit}
           aria-label="Salir"
-          className="text-slate-400 hover:text-white text-xs px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 transition-colors"
+          className="text-fg-muted hover:text-fg text-xs px-3 py-1.5 rounded-md bg-surface border border-line transition-colors duration-base inline-flex items-center gap-1"
         >
-          ✕ Salir
+          <X className="w-3.5 h-3.5" />
+          Salir
         </button>
       </div>
 
@@ -505,7 +509,7 @@ export default function ConversationView({
 
       {/* Split vertical: ES arriba (Tú), JA abajo (Otro) */}
       <div className="flex-1 flex flex-col">
-        <div className="flex-1 flex items-center justify-center border-b border-slate-900/60">
+        <div className="flex-1 flex items-center justify-center border-b border-line">
           <Orb
             side="es"
             stateValue={state.es}
@@ -547,9 +551,9 @@ export default function ConversationView({
       />
 
       {state.error && (
-        <div className="mx-5 mb-4 bg-red-950/70 border border-red-800/60 rounded-2xl p-3 flex items-start gap-2 shadow-lg">
-          <span className="text-base">⚠️</span>
-          <p className="text-red-200 text-xs leading-relaxed flex-1">{state.error}</p>
+        <div className="mx-5 mb-4 bg-danger-surface border border-danger/30 rounded-lg p-3 flex items-start gap-2 shadow-md">
+          <AlertTriangle className="w-4 h-4 text-danger shrink-0" />
+          <p className="text-danger text-xs leading-relaxed flex-1">{state.error}</p>
         </div>
       )}
     </div>
