@@ -2,11 +2,94 @@
 @tailwind components;
 @tailwind utilities;
 
+@import url("https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;500;700;800&display=swap");
+
 :root {
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
+
+  /* Neutrales — claro (papel cálido, no azul-gris) */
+  --bg: #fffbf5;
+  --bg-elevated: #ffffff;
+  --surface: #fff8ef;
+  --surface-muted: #f5ede4;
+  --line: #e7dccf;
+  --text: #241c15;
+  --text-muted: #6b5d4f;
+  --text-faint: #9c8c7a;
+
+  /* Acento ES — terracota/atardecer */
+  --es-500: #ea580c;
+  --es-600: #c2410c;
+  --es-700: #9a3412;
+  --es-surface: #fff1e6;
+  --es-gradient: linear-gradient(135deg, #fb923c, #dc2626);
+
+  /* Acento JA — rojo-amanecer sereno */
+  --ja-500: #c1443a;
+  --ja-600: #a6362d;
+  --ja-700: #7f281f;
+  --ja-surface: #fdf0ee;
+  --ja-gradient: linear-gradient(180deg, #ffe3dc 0%, #fff8f3 65%);
+
+  /* Semánticos — fijos, no cambian con tema ni acento */
+  --danger: #dc2626;
+  --danger-surface: #fef1f1;
+  --success: #16a34a;
+  --focus-ring: #2563eb;
+
+  --dur-fast: 150ms;
+  --dur-base: 200ms;
+  --dur-slow: 250ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Oscuro por defecto salvo que el usuario elija claro explícitamente (data-theme="light") */
+:root:not([data-theme="light"]) {
+  --bg: #171310;
+  --bg-elevated: #211c17;
+  --surface: #241f19;
+  --surface-muted: #2c2620;
+  --line: #3a322a;
+  --text: #f5efe7;
+  --text-muted: #c9bcac;
+  --text-faint: #8b7e6e;
+
+  --es-surface: rgba(234, 88, 12, 0.16);
+  --ja-surface: rgba(166, 54, 45, 0.14);
+  --danger-surface: rgba(220, 38, 38, 0.16);
+}
+
+:root[data-theme="dark"] {
+  --bg: #171310;
+  --bg-elevated: #211c17;
+  --surface: #241f19;
+  --surface-muted: #2c2620;
+  --line: #3a322a;
+  --text: #f5efe7;
+  --text-muted: #c9bcac;
+  --text-faint: #8b7e6e;
+
+  --es-surface: rgba(234, 88, 12, 0.16);
+  --ja-surface: rgba(166, 54, 45, 0.14);
+  --danger-surface: rgba(220, 38, 38, 0.16);
+}
+
+:root[data-theme="light"] {
+  --bg: #fffbf5;
+  --bg-elevated: #ffffff;
+  --surface: #fff8ef;
+  --surface-muted: #f5ede4;
+  --line: #e7dccf;
+  --text: #241c15;
+  --text-muted: #6b5d4f;
+  --text-faint: #9c8c7a;
+
+  --es-surface: #fff1e6;
+  --ja-surface: #fdf0ee;
+  --danger-surface: #fef1f1;
 }
 
 * {
@@ -21,58 +104,108 @@ html, body {
 }
 
 body {
-  background-color: #020617;
-  color: white;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: "M PLUS Rounded 1c", "Hiragino Maru Gothic ProN", "Inter", -apple-system,
+    BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   padding-top: var(--safe-top);
   padding-bottom: var(--safe-bottom);
   padding-left: var(--safe-left);
   padding-right: var(--safe-right);
+  transition: background-color var(--dur-base) var(--ease-out), color var(--dur-base) var(--ease-out);
 }
 
-/* Evita el zoom accidental en botones y controles en iOS Safari */
 input, select, textarea, button {
   touch-action: manipulation;
 }
 
-/* Animaciones de onda pulsante al grabar */
+button:focus-visible, a:focus-visible, input:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 @keyframes pulse-ring {
-  0% {
-    transform: scale(0.95);
-    opacity: 0.8;
-  }
-  50% {
-    opacity: 0.4;
-  }
-  100% {
-    transform: scale(2.2);
-    opacity: 0;
-  }
+  0% { transform: scale(0.95); opacity: 0.8; }
+  50% { opacity: 0.4; }
+  100% { transform: scale(2.2); opacity: 0; }
 }
 
 @keyframes pulse-ring-inner {
-  0% {
-    transform: scale(1);
-    opacity: 0.6;
-  }
-  50% {
-    opacity: 0.3;
-  }
-  100% {
-    transform: scale(1.65);
-    opacity: 0;
-  }
+  0% { transform: scale(1); opacity: 0.6; }
+  50% { opacity: 0.3; }
+  100% { transform: scale(1.65); opacity: 0; }
 }
 
 .recording-ring {
-  animation: pulse-ring 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+  animation: pulse-ring 1.5s var(--ease-out) infinite;
 }
 
 .recording-ring-2 {
-  animation: pulse-ring-inner 1.5s cubic-bezier(0.215, 0.61, 0.355, 1) 0.5s infinite;
+  animation: pulse-ring-inner 1.5s var(--ease-out) 0.5s infinite;
 }
 
-/* Scrollbar invisible para look & feel nativo */
+/* Iconos: solo animan cuando cambian de estado (mic↔stop, copiar↔check, tema,
+   hablando) — nunca al hover, para no caer en el genérico "toda tarjeta reacciona". */
+@keyframes icon-swap {
+  from { opacity: 0; transform: scale(0.7) rotate(-10deg); }
+  to { opacity: 1; transform: scale(1) rotate(0deg); }
+}
+.icon-swap {
+  animation: icon-swap var(--dur-base) var(--ease-out);
+}
+
+@keyframes icon-pop {
+  from { opacity: 0; transform: scale(0.5); }
+  to { opacity: 1; transform: scale(1); }
+}
+.icon-pop {
+  animation: icon-pop var(--dur-fast) var(--ease-out);
+}
+
+@keyframes icon-theme-in {
+  from { opacity: 0; transform: scale(0.4) rotate(-90deg); }
+  to { opacity: 1; transform: scale(1) rotate(0deg); }
+}
+.icon-theme {
+  animation: icon-theme-in var(--dur-slow) var(--ease-out);
+}
+
+@keyframes icon-speaking {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.18); }
+}
+.icon-speaking {
+  animation: icon-speaking 900ms var(--ease-out) infinite;
+}
+
+/* Paneles flotantes: entrada breve, sustituye clases de tailwindcss-animate
+   (no instalado) que no hacían nada. */
+@keyframes panel-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.panel-in {
+  animation: panel-in var(--dur-base) var(--ease-out);
+}
+
+@keyframes fade-in-simple {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.fade-in-simple {
+  animation: fade-in-simple var(--dur-base) var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .recording-ring, .recording-ring-2, .icon-speaking {
+    animation: none;
+  }
+  * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
 ::-webkit-scrollbar {
   display: none;
 }

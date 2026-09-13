@@ -15,16 +15,20 @@ function passwordPage(error?: string): string {
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Acceso</title>
 <style>
-  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; background:#020617; color:#f1f5f9; font-family:system-ui,-apple-system,sans-serif; padding:24px; }
+  @import url("https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;500;700;800&display=swap");
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; background:#171310; color:#f5efe7; font-family:"M PLUS Rounded 1c","Hiragino Maru Gothic ProN",system-ui,-apple-system,sans-serif; padding:24px; }
   form { width:100%; max-width:320px; }
-  h1 { font-size:18px; margin:0 0 16px; }
-  input { width:100%; box-sizing:border-box; padding:12px 14px; border-radius:12px; border:1px solid #334155; background:#0f172a; color:#fff; font-size:16px; margin-bottom:12px; }
-  button { width:100%; padding:12px 14px; border-radius:12px; border:none; background:#7c3aed; color:#fff; font-size:15px; font-weight:600; }
-  p.error { color:#fca5a5; font-size:13px; margin:-6px 0 12px; }
+  .badge { width:48px; height:48px; border-radius:16px; margin:0 0 16px; background:linear-gradient(135deg,#ea580c,#a6362d); display:flex; align-items:center; justify-content:center; font-size:22px; box-shadow:0 4px 12px rgba(36,28,21,.3); }
+  h1 { font-size:18px; margin:0 0 16px; font-weight:700; }
+  input { width:100%; box-sizing:border-box; padding:12px 14px; border-radius:16px; border:1px solid #3a322a; background:#241f19; color:#f5efe7; font-size:16px; margin-bottom:12px; font-family:inherit; }
+  input::placeholder { color:#8b7e6e; }
+  button { width:100%; padding:12px 14px; border-radius:16px; border:none; background:linear-gradient(135deg,#ea580c,#a6362d); color:#fff; font-size:15px; font-weight:700; font-family:inherit; }
+  p.error { color:#f87171; font-size:13px; margin:-6px 0 12px; }
 </style>
 </head>
 <body>
   <form method="POST">
+    <div class="badge">🎙️</div>
     <h1>Traductor de Voz</h1>
     ${error ? `<p class="error">${error}</p>` : ""}
     <input type="password" name="password" placeholder="Contraseña" autofocus required />
