@@ -10,3 +10,5 @@ thumbs.db
 .idea
 
 /.superpowers
+.claude/worktrees/fix-japanese-tts-cutoff/
+docs/superpowers/plans/2026-09-14-fix-japanese-tts-cutoff.md
