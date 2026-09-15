@@ -10,6 +10,7 @@ import {
   oppositeOfActive,
   CONVERSATION_CONSTANTS,
 } from "#lib/conversationMachine";
+import { estimateSpeechCeilingMs, shouldAdvanceOnSpeechError } from "#lib/ttsTurn";
 
 function oppositeLang(side: SupportedLanguage): SupportedLanguage {
   return side === "es" ? "ja" : "es";
@@ -123,6 +124,12 @@ export default function Home() {
   const pendingReopenRef = useRef<{ side: SupportedLanguage; timer: ReturnType<typeof setTimeout> | null } | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  // Utterance TTS en curso: mantenerla referenciada evita que Safari/Chrome la
+  // recolecten antes de que dispare onend (bug documentado de ambos motores).
+  const currentUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  // Token de turno: si llega un onend/onerror tardío de una utterance ya
+  // reemplazada por una más nueva, se ignora.
+  const speechTurnTokenRef = useRef(0);
   const audioStreamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -159,21 +166,40 @@ export default function Home() {
     saveHistory(history);
   }, [history]);
 
-  // Limpiar timers al desmontar + TTS/micro cleanup en beforeunload y visibilitychange
+  // Ref con el stream de conversación actual, para que la limpieza de solo-montaje
+  // de abajo pueda parar sus pistas al desmontar/cerrar pestaña sin depender de
+  // convAudioStream (y sin re-ejecutarse — y sin cancelar TTS — en cada cambio).
+  const convAudioStreamRef = useRef<MediaStream | null>(null);
+  useEffect(() => {
+    const prev = convAudioStreamRef.current;
+    convAudioStreamRef.current = convAudioStream;
+    if (prev && prev !== convAudioStream) {
+      prev.getTracks().forEach((t) => t.stop());
+    }
+  }, [convAudioStream]);
+
+  // Limpieza de solo-montaje: timers, streams y TTS al desmontar, en beforeunload
+  // y cuando la pestaña pasa a oculta. Deliberadamente SIN convAudioStream en las
+  // deps: antes este efecto se re-ejecutaba en cada cambio de stream (cada vez que
+  // se abría un turno nuevo) y su limpieza cancelaba speechSynthesis en el camino —
+  // eso era lo que cortaba el TTS en japonés a mitad de frase.
   useEffect(() => {
     const cleanup = () => {
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
         window.speechSynthesis.cancel();
       }
     };
-    const handleBeforeUnload = () => {
-      cleanup();
+    const stopStreams = () => {
       if (audioStreamRef.current) {
         audioStreamRef.current.getTracks().forEach((t) => t.stop());
       }
-      if (convAudioStream) {
-        convAudioStream.getTracks().forEach((t) => t.stop());
+      if (convAudioStreamRef.current) {
+        convAudioStreamRef.current.getTracks().forEach((t) => t.stop());
       }
+    };
+    const handleBeforeUnload = () => {
+      cleanup();
+      stopStreams();
     };
     const handleVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
@@ -188,17 +214,12 @@ export default function Home() {
       if (convNextTurnTimerRef.current) clearTimeout(convNextTurnTimerRef.current);
       if (convSpeakingDoneTimerRef.current) clearTimeout(convSpeakingDoneTimerRef.current);
       if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
-      if (audioStreamRef.current) {
-        audioStreamRef.current.getTracks().forEach((t) => t.stop());
-      }
-      if (convAudioStream) {
-        convAudioStream.getTracks().forEach((t) => t.stop());
-      }
+      stopStreams();
       cleanup();
       window.removeEventListener("beforeunload", handleBeforeUnload);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [convAudioStream]);
+  }, []);
 
   // Desbloquear audio en iOS Safari (SpeechSynthesis requiere gesto del usuario previo)
   const primeAudioContext = useCallback(() => {
@@ -213,9 +234,16 @@ export default function Home() {
     }
   }, []);
 
-  // Reproducir síntesis de voz (TTS)
+  // Reproducir síntesis de voz (TTS). `onDone` se llama cuando la voz termina de
+  // verdad (onend) o falla de verdad (onerror con un error que no es una
+  // cancelación propia) — nunca por una estimación de duración.
   const speak = useCallback(
-    (text: string, lang: SupportedLanguage, keyId?: string) => {
+    (
+      text: string,
+      lang: SupportedLanguage,
+      keyId?: string,
+      onDone?: (info: { finished: boolean }) => void
+    ) => {
       if (typeof window === "undefined" || !("speechSynthesis" in window)) {
         return;
       }
@@ -238,11 +266,26 @@ export default function Home() {
         }
       }
       if (keyId) setSpeakingKey(keyId);
+
+      currentUtteranceRef.current = utterance;
+      const turnToken = ++speechTurnTokenRef.current;
+
+      const isCurrentTurn = () =>
+        currentUtteranceRef.current === utterance && speechTurnTokenRef.current === turnToken;
+
       utterance.onend = () => {
         setSpeakingKey((prev) => (prev === keyId ? null : prev));
+        const wasCurrent = isCurrentTurn();
+        if (currentUtteranceRef.current === utterance) currentUtteranceRef.current = null;
+        if (wasCurrent) onDone?.({ finished: true });
       };
-      utterance.onerror = () => {
+      utterance.onerror = (event) => {
         setSpeakingKey((prev) => (prev === keyId ? null : prev));
+        const wasCurrent = isCurrentTurn();
+        if (currentUtteranceRef.current === utterance) currentUtteranceRef.current = null;
+        if (wasCurrent && shouldAdvanceOnSpeechError(event.error)) {
+          onDone?.({ finished: false });
+        }
       };
       window.speechSynthesis.speak(utterance);
     },
@@ -527,26 +570,48 @@ export default function Home() {
           convTimerRef.current = null;
         }
 
-        // Si autoSpeak, reproducir traducción dirigida al lado opuesto
+        // Si autoSpeak, reproducir traducción dirigida al lado opuesto.
+        // El turno avanza cuando la voz termina de verdad (onDone, via onend/
+        // onerror real) — el temporizador de abajo es solo la red de seguridad
+        // por si ese evento nunca llega.
         if (autoSpeak) {
           const targetLang: SupportedLanguage = activeSide === "es" ? "ja" : "es";
           dispatchConv({ type: "START_SPEAKING", side: targetLang });
 
-          // Reproducir TTS. Al terminar, abrir el otro lado.
-          speak(translation, targetLang, `conv-${targetLang}`);
-
-          // Fallback por si utterance.onend no se dispara en Safari
-          if (convSpeakingDoneTimerRef.current) clearTimeout(convSpeakingDoneTimerRef.current);
-          // Estimar duración: 80ms por carácter como heurística segura
-          const estimatedMs = Math.max(1500, translation.length * 80);
-          convSpeakingDoneTimerRef.current = setTimeout(() => {
+          let turnFinished = false;
+          const finishTurn = () => {
+            if (turnFinished) return;
+            turnFinished = true;
+            if (convSpeakingDoneTimerRef.current) {
+              clearTimeout(convSpeakingDoneTimerRef.current);
+              convSpeakingDoneTimerRef.current = null;
+            }
             dispatchConv({ type: "FINISH_SPEAKING" });
             // Programar apertura del lado opuesto tras pausa natural
             if (convNextTurnTimerRef.current) clearTimeout(convNextTurnTimerRef.current);
             convNextTurnTimerRef.current = setTimeout(() => {
               openConvMic(targetLang);
             }, POST_TURN_PAUSE_MS);
-          }, estimatedMs);
+          };
+
+          // Red de seguridad: solo actúa si onend/onerror nunca dispararon. Si al
+          // disparar el techo la voz sigue sonando de verdad (window.speechSynthesis.speaking),
+          // NO cerramos el turno — eso abriría el micro sobre TTS todavía audible
+          // (turno fantasma). Reintentamos cada segundo hasta que de verdad haya terminado.
+          const ceilingFired = () => {
+            if (typeof window !== "undefined" && window.speechSynthesis.speaking) {
+              convSpeakingDoneTimerRef.current = setTimeout(ceilingFired, 1000);
+              return;
+            }
+            finishTurn();
+          };
+
+          speak(translation, targetLang, `conv-${targetLang}`, () => finishTurn());
+
+          convSpeakingDoneTimerRef.current = setTimeout(
+            ceilingFired,
+            estimateSpeechCeilingMs(translation, targetLang)
+          );
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : "Error inesperado";
@@ -700,10 +765,21 @@ export default function Home() {
 
   const handlePlayLastConv = useCallback(() => {
     if (!convState.lastTranslation || !convState.lastDetectedLanguage) return;
+    // No reproducir sobre un micro abierto: la voz sería captada por el otro
+    // lado y crearía un turno traducido fantasma (docs/CONTEXT.md: "Micro
+    // cerrado durante speaking").
+    const aSideIsBusy =
+      convState.es === "listening" ||
+      convState.es === "processing" ||
+      convState.es === "speaking" ||
+      convState.ja === "listening" ||
+      convState.ja === "processing" ||
+      convState.ja === "speaking";
+    if (aSideIsBusy) return;
     const targetLang: SupportedLanguage =
       convState.lastDetectedLanguage === "es" ? "ja" : "es";
     speak(convState.lastTranslation, targetLang, "conv-last");
-  }, [convState.lastTranslation, convState.lastDetectedLanguage, speak]);
+  }, [convState.lastTranslation, convState.lastDetectedLanguage, convState.es, convState.ja, speak]);
 
   // Manejo del cambio de modo: si salimos de conversation, limpiar todo
   useEffect(() => {
