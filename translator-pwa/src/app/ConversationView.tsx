@@ -393,10 +393,12 @@ function LastTranslation({
   text,
   detected,
   onPlay,
+  disabled,
 }: {
   text: string;
   detected: SupportedLanguage | null;
   onPlay: () => void;
+  disabled: boolean;
 }) {
   if (!text) return null;
   const targetLang = detected ? opposite(detected) : "es";
@@ -414,7 +416,8 @@ function LastTranslation({
           type="button"
           aria-label="Reproducir última traducción"
           onClick={onPlay}
-          className={`w-7 h-7 rounded-md ${accent.bgFaded} hover:opacity-80 ${accent.text} flex items-center justify-center transition-colors duration-base`}
+          disabled={disabled}
+          className={`w-7 h-7 rounded-md ${accent.bgFaded} hover:opacity-80 ${accent.text} flex items-center justify-center transition-colors duration-base disabled:opacity-40 disabled:cursor-not-allowed`}
         >
           <Volume2 className="w-3.5 h-3.5" />
         </button>
@@ -548,6 +551,14 @@ export default function ConversationView({
         text={state.lastTranslation}
         detected={state.lastDetectedLanguage}
         onPlay={onPlayLastTranslation}
+        disabled={
+          state.es === "listening" ||
+          state.es === "processing" ||
+          state.es === "speaking" ||
+          state.ja === "listening" ||
+          state.ja === "processing" ||
+          state.ja === "speaking"
+        }
       />
 
       {state.error && (
