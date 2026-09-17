@@ -1,0 +1,45 @@
+# Vercel Speed Insights Installation
+
+Successfully installed and configured Vercel Speed Insights for this Next.js 15 App Router project.
+
+## Changes Made
+
+### 1. Package Installation
+- Installed `@vercel/speed-insights` version 2.0.0
+- Package added to dependencies in `package.json`
+- Lock file (`package-lock.json`) updated with new dependency tree
+
+### 2. Code Configuration
+**Modified: `/src/app/layout.tsx`**
+- Added import: `import { SpeedInsights } from "@vercel/speed-insights/next";`
+- Added `<SpeedInsights />` component inside the `<body>` tag at the end (after `{children}`)
+
+This follows the official Vercel documentation for Next.js App Router (v13.5+), which specifies:
+- Using the `@vercel/speed-insights/next` import path for Next.js
+- Placing the component in the root layout file
+- Adding it inside the body element to collect performance metrics
+
+## Implementation Details
+
+The SpeedInsights component was added according to the latest official Vercel documentation fetched from:
+https://vercel.com/docs/speed-insights/quickstart
+
+The component will automatically:
+- Collect Web Vitals and performance metrics from visitors
+- Send data to Vercel's Speed Insights dashboard
+- Provide insights on real-world performance after deployment
+
+## Testing & Verification
+
+✅ Build completed successfully with no errors
+✅ All existing tests pass (107 tests, 0 failures)
+✅ No linting errors introduced
+✅ Package lock file properly updated
+✅ Existing code structure and functionality preserved
+
+## Next Steps
+
+After deployment to Vercel:
+- Performance metrics will begin appearing in the Vercel dashboard
+- Data typically appears after a few days of user traffic
+- Monitor Web Vitals including LCP, FID, CLS, FCP, and TTFB
