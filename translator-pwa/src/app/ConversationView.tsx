@@ -1,20 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ConversationState } from "#lib/conversationMachine";
 import type { HistoryItemV2 } from "#lib/history";
 import type { SupportedLanguage } from "#lib/translator";
 import { getOrbAccessibleLabel } from "#lib/orbLabel";
 import { SIDE_FLAVOR } from "#lib/uiCopy";
 import { SunWarmIcon, SunDawnIcon } from "../components/icons";
-import { Square, ArrowLeftRight, Mic, Volume2, X, AlertTriangle } from "lucide-react";
+import { Square, Mic, Volume2, X, AlertTriangle } from "lucide-react";
 
 interface ConversationViewProps {
   state: ConversationState;
-  onLongPressOrb: (side: SupportedLanguage) => void;
-  onDoubleTapOrb: (side: SupportedLanguage) => void;
   onOpenMic: (side: SupportedLanguage) => void;
   onStopTurn: (side: SupportedLanguage) => void;
+  /** Cancela el turno activo (descarta audio, aborta petición y voz). */
+  onCancelTurn: () => void;
   onExit: () => void;
   onPlayLastTranslation: () => void;
   history: HistoryItemV2[];
@@ -85,69 +85,6 @@ function ProcessingDots() {
   );
 }
 
-function OrbContextMenu({
-  side,
-  onClose,
-  onCancel,
-  onInvert,
-  position,
-}: {
-  side: SupportedLanguage;
-  onClose: () => void;
-  onCancel: () => void;
-  onInvert: () => void;
-  position: "below-es" | "below-ja";
-}) {
-  const accent = ACCENT_CLASSES[SIDE_META[side].accent];
-  const ref = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const handler = (e: MouseEvent | TouchEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
-    };
-    document.addEventListener("mousedown", handler);
-    document.addEventListener("touchstart", handler);
-    return () => {
-      document.removeEventListener("mousedown", handler);
-      document.removeEventListener("touchstart", handler);
-    };
-  }, [onClose]);
-
-  return (
-    <div
-      ref={ref}
-      className={`absolute z-20 ${position === "below-es" ? "top-3" : "bottom-3"} left-1/2 -translate-x-1/2 bg-bg-elevated border border-line rounded-lg shadow-lg p-2 flex flex-col gap-1 min-w-[10rem] panel-in`}
-      onClick={(e) => e.stopPropagation()}
-      role="menu"
-    >
-      <button
-        type="button"
-        role="menuitem"
-        onClick={() => {
-          onCancel();
-          onClose();
-        }}
-        className="flex items-center gap-2 px-3 py-2 rounded-md text-xs font-semibold text-danger hover:bg-danger-surface transition-colors duration-base"
-      >
-        <Square className="w-3.5 h-3.5" fill="currentColor" />
-        <span>Cancelar este turno</span>
-      </button>
-      <button
-        type="button"
-        role="menuitem"
-        onClick={() => {
-          onInvert();
-          onClose();
-        }}
-        className={`flex items-center gap-2 px-3 py-2 rounded-md text-xs font-semibold ${accent.bgFaded} text-fg hover:bg-surface-muted transition-colors duration-base`}
-      >
-        <ArrowLeftRight className="w-3.5 h-3.5" />
-        <span>Pasar al otro lado</span>
-      </button>
-    </div>
-  );
-}
-
 function Orb({
   side,
   stateValue,
@@ -155,12 +92,8 @@ function Orb({
   softLimitSeconds,
   isNextSpeaker,
   activeSide,
-  onLongPress,
-  onDoubleTap,
   onTapToStart,
   onStopTurn,
-  onCancelActive,
-  onInvertActive,
 }: {
   side: SupportedLanguage;
   stateValue: ConversationState["es" | "ja"];
@@ -168,66 +101,18 @@ function Orb({
   softLimitSeconds: number;
   isNextSpeaker: boolean;
   activeSide: SupportedLanguage | null;
-  onLongPress: () => void;
-  onDoubleTap: () => void;
   onTapToStart: () => void;
   onStopTurn: () => void;
-  onCancelActive: () => void;
-  onInvertActive: () => void;
 }) {
   const meta = SIDE_META[side];
   const accent = ACCENT_CLASSES[meta.accent];
-  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
 
-  const clearLongPress = () => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
+  // Todo es un toque (y "toca <nombre>" de Control por voz también lo es): sin
+  // pulsaciones largas ni dobles toques. Cancelar es el botón "Cancelar turno".
+  const handleClick = () => {
+    if (stateValue === "idle") onTapToStart();
+    else if (stateValue === "listening") onStopTurn();
   };
-
-  const handlePointerDown = () => {
-    clearLongPress();
-    longPressTimer.current = setTimeout(() => {
-      longPressTimer.current = null;
-      if (stateValue !== "idle") {
-        setMenuOpen(true);
-      } else {
-        onLongPress();
-      }
-    }, 500);
-  };
-
-  const handlePointerUp = () => {
-    if (longPressTimer.current) {
-      clearLongPress();
-      // Tap corto
-      if (menuOpen) return;
-      if (stateValue === "idle") {
-        onTapToStart();
-      } else if (stateValue === "listening") {
-        onStopTurn();
-      } else {
-        // Tap en orbe hablando/procesando: estado informativo, abre menú
-        setMenuOpen(true);
-      }
-    }
-  };
-
-  const handlePointerLeave = () => clearLongPress();
-
-  useEffect(
-    () => () => {
-      clearLongPress();
-    },
-    []
-  );
-
-  // Cierre de menú si el estado cambia (e.g. turno terminó)
-  useEffect(() => {
-    if (stateValue === "idle") setMenuOpen(false);
-  }, [stateValue]);
 
   const isOverSoftLimit = turnDurationSeconds >= softLimitSeconds;
   const isActive = stateValue !== "idle";
@@ -239,16 +124,6 @@ function Orb({
         isActive ? "opacity-100" : isNext ? "opacity-100" : "opacity-50"
       }`}
     >
-      {menuOpen && (
-        <OrbContextMenu
-          side={side}
-          onClose={() => setMenuOpen(false)}
-          onCancel={onCancelActive}
-          onInvert={onInvertActive}
-          position={side === "es" ? "below-es" : "below-ja"}
-        />
-      )}
-
       <div className="text-center">
         <div className="flex items-center justify-center gap-2">
           <span className="text-[10px] text-fg-faint uppercase font-bold tracking-wider">
@@ -278,19 +153,10 @@ function Orb({
 
       <button
         type="button"
-        aria-label={getOrbAccessibleLabel({
-          side,
-          stateValue,
-          activeSide,
-          displayName: meta.name,
-          role: meta.role,
-        })}
+        aria-label={getOrbAccessibleLabel({ side, stateValue, activeSide })}
         aria-pressed={isActive}
-        onPointerDown={handlePointerDown}
-        onPointerUp={handlePointerUp}
-        onPointerLeave={handlePointerLeave}
-        onPointerCancel={handlePointerLeave}
-        onDoubleClick={onDoubleTap}
+        aria-disabled={stateValue === "processing" || stateValue === "speaking"}
+        onClick={handleClick}
         className={`relative w-32 h-32 rounded-full flex items-center justify-center text-3xl select-none touch-manipulation transition-all duration-base ease-out ${
           stateValue === "listening"
             ? `bg-gradient-to-br ${accent.gradient} shadow-lg scale-105 ring-4 ${accent.ring}`
@@ -341,10 +207,7 @@ function Orb({
             : `Escuchando · cierra al detectar silencio`)}
         {stateValue === "speaking" && "Reproduciendo traducción…"}
         {stateValue === "processing" && "Enviando audio a Gemini…"}
-        {stateValue === "idle" &&
-          (isNext
-            ? "Toca para hablar ahora · long-press para invertir"
-            : "Esperando · long-press el orbe activo para invertir")}
+        {stateValue === "idle" && (activeSide === null ? "Toca para hablar" : "Esperando")}
       </p>
     </div>
   );
@@ -429,10 +292,9 @@ function LastTranslation({
 
 export default function ConversationView({
   state,
-  onLongPressOrb,
-  onDoubleTapOrb,
   onOpenMic,
   onStopTurn,
+  onCancelTurn,
   onExit,
   onPlayLastTranslation,
   history,
@@ -520,12 +382,8 @@ export default function ConversationView({
             softLimitSeconds={softLimitSeconds}
             isNextSpeaker={nextSpeaker === "es"}
             activeSide={state.activeSide}
-            onLongPress={() => onLongPressOrb("es")}
-            onDoubleTap={() => onDoubleTapOrb("es")}
             onTapToStart={() => onOpenMic("es")}
             onStopTurn={() => onStopTurn("es")}
-            onCancelActive={() => onLongPressOrb("es")}
-            onInvertActive={() => onDoubleTapOrb("es")}
           />
         </div>
         <div className="flex-1 flex items-center justify-center">
@@ -536,15 +394,27 @@ export default function ConversationView({
             softLimitSeconds={softLimitSeconds}
             isNextSpeaker={nextSpeaker === "ja"}
             activeSide={state.activeSide}
-            onLongPress={() => onLongPressOrb("ja")}
-            onDoubleTap={() => onDoubleTapOrb("ja")}
             onTapToStart={() => onOpenMic("ja")}
             onStopTurn={() => onStopTurn("ja")}
-            onCancelActive={() => onLongPressOrb("ja")}
-            onInvertActive={() => onDoubleTapOrb("ja")}
           />
         </div>
       </div>
+
+      {/* Cancelar: visible mientras haya un lado activo. Un solo botón grande con un
+          nombre que se puede decir ("Cancelar turno"); sustituye al gesto de
+          pulsación larga y al menú contextual. */}
+      {state.activeSide !== null && (
+        <div className="mx-5 mb-3">
+          <button
+            type="button"
+            onClick={onCancelTurn}
+            className="w-full min-h-[56px] rounded-lg border border-danger/40 bg-danger-surface text-danger text-sm font-bold inline-flex items-center justify-center gap-2 transition-colors duration-base"
+          >
+            <Square className="w-4 h-4" fill="currentColor" />
+            Cancelar turno
+          </button>
+        </div>
+      )}
 
       {/* Última traducción */}
       <LastTranslation
