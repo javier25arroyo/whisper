@@ -17,6 +17,7 @@ function oppositeLang(side: SupportedLanguage): SupportedLanguage {
 }
 import { useSilenceDetector } from "#lib/useSilenceDetector";
 import { useWakeLock } from "#lib/useWakeLock";
+import { isMicDead } from "#lib/micHealth";
 import { classifyRecorderStop } from "#lib/turnStop";
 import { postTranslate } from "#lib/apiClient";
 import {
@@ -84,6 +85,7 @@ const POST_TURN_PAUSE_MS = CONVERSATION_CONSTANTS.POST_TURN_PAUSE_MS;
 const SILENCE_MS = CONVERSATION_CONSTANTS.SILENCE_MS;
 const ESTIMATED_PROCESSING_MS = 5000;
 const STORAGE_MODE_KEY = "whisper_pwa_mode";
+const MIC_LOST_MESSAGE = "Se interrumpió el micrófono. Di «Hablar en Español» para continuar.";
 
 export default function Home() {
   const { theme, toggleTheme } = useTheme();
@@ -119,6 +121,9 @@ export default function Home() {
   const [convState, dispatchConv] = useReducer(conversationReducer, initialConversationState);
   // La pantalla no se apaga mientras haya una sesión de conversación abierta.
   useWakeLock(convState.sessionId !== null);
+  // Espejo del estado para handlers de eventos del documento (sin re-suscribirlos).
+  const convStateRef = useRef(convState);
+  convStateRef.current = convState;
   const [convAudioStream, setConvAudioStream] = useState<MediaStream | null>(null);
   const [convTurnSeconds, setConvTurnSeconds] = useState(0);
   const convRecorderRef = useRef<MediaRecorder | null>(null);
@@ -132,8 +137,10 @@ export default function Home() {
   const convCancelledRecordersRef = useRef(new WeakSet<MediaRecorder>());
   // Petición /api/translate en vuelo del turno actual, para poder abortarla.
   const convFetchAbortRef = useRef<AbortController | null>(null);
-  // Buffer para reabrir mic si el interlocutor habla durante procesando
-  const pendingReopenRef = useRef<{ side: SupportedLanguage; timer: ReturnType<typeof setTimeout> | null } | null>(null);
+  // Época de turno: cada apertura del micro (openConvMic) toma una nueva y cada
+  // cancelación (cancelTurnIO) la invalida. Cancelar, salir o perder el micro mientras
+  // getUserMedia / el retardo de 50 ms siguen pendientes debe invalidar esa apertura.
+  const convTurnEpochRef = useRef(0);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   // Utterance TTS en curso: mantenerla referenciada evita que Safari/Chrome la
@@ -198,6 +205,8 @@ export default function Home() {
   useEffect(() => {
     const cleanup = () => {
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        // Invalida la utterance en curso: su onend/onerror tardío no debe avanzar el turno.
+        speechTurnTokenRef.current++;
         window.speechSynthesis.cancel();
       }
     };
@@ -420,7 +429,11 @@ export default function Home() {
       timerRef.current = setInterval(() => {
         setRecordingSeconds((prev) => {
           if (prev >= HARD_LIMIT_SECONDS - 1) {
-            mediaRecorder.stop();
+            if (timerRef.current) {
+              clearInterval(timerRef.current);
+              timerRef.current = null;
+            }
+            if (mediaRecorder.state === "recording") mediaRecorder.stop();
             setIsRecording(false);
             return HARD_LIMIT_SECONDS;
           }
@@ -472,8 +485,9 @@ export default function Home() {
 
   const openConvMic = useCallback(
     async (side: SupportedLanguage) => {
+      const epoch = ++convTurnEpochRef.current;
       if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-        dispatchConv({ type: "SET_ERROR", error: "Tu navegador no soporta grabación de audio." });
+        dispatchConv({ type: "FAIL_TURN", error: "Tu navegador no soporta grabación de audio." });
         return;
       }
       try {
@@ -483,17 +497,26 @@ export default function Home() {
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
         });
+        // Cancelado / salido / micro perdido mientras se pedía el permiso: soltar el stream.
+        if (epoch !== convTurnEpochRef.current) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
         setConvAudioStream(stream);
         // Esperar a que el efecto con el stream abra el detector de silencio
         // (se monta cuando convAudioStream cambia)
         // Pequeño delay para que AnalyserNode esté listo
-        setTimeout(() => dispatchConv({ type: "OPEN_MIC", side }), 50);
+        setTimeout(() => {
+          if (epoch !== convTurnEpochRef.current) return;
+          dispatchConv({ type: "OPEN_MIC", side });
+        }, 50);
       } catch (err: unknown) {
+        if (epoch !== convTurnEpochRef.current) return;
         const message =
           err instanceof Error && (err.name === "NotAllowedError" || err.name === "PermissionDeniedError")
             ? "Permiso de micrófono denegado. Actívalo en ajustes del navegador."
             : "No se pudo abrir el micrófono para este turno.";
-        dispatchConv({ type: "SET_ERROR", error: message });
+        dispatchConv({ type: "FAIL_TURN", error: message });
       }
     },
     []
@@ -515,6 +538,7 @@ export default function Home() {
   // Cancela el turno a nivel de E/S: aborta la petición en vuelo y marca el grabador
   // para que su onstop descarte el audio. No toca el estado de la máquina.
   const cancelTurnIO = useCallback(() => {
+    convTurnEpochRef.current++;
     convFetchAbortRef.current?.abort();
     convFetchAbortRef.current = null;
     const recorder = convRecorderRef.current;
@@ -528,6 +552,34 @@ export default function Home() {
       }
     }
   }, []);
+
+  // Un turno con el micro perdido se descarta y la máquina vuelve a un estado accionable.
+  const failMic = useCallback(() => {
+    cancelTurnIO();
+    setConvAudioStream(null);
+    setConvTurnSeconds(0);
+    dispatchConv({ type: "FAIL_TURN", error: MIC_LOST_MESSAGE });
+  }, [cancelTurnIO]);
+
+  // Vigilante 1: la pista de audio termina sola (llamada, Siri, permiso revocado).
+  useEffect(() => {
+    if (!convAudioStream) return;
+    const tracks = convAudioStream.getAudioTracks();
+    tracks.forEach((t) => t.addEventListener("ended", failMic));
+    return () => tracks.forEach((t) => t.removeEventListener("ended", failMic));
+  }, [convAudioStream, failMic]);
+
+  // Vigilante 2: al volver a primer plano con un turno "listening" y el micro muerto.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      const s = convStateRef.current;
+      const listening = s.es === "listening" || s.ja === "listening";
+      if (listening && isMicDead(convAudioStreamRef.current)) failMic();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [failMic]);
 
   // Inicializar MediaRecorder cuando se abre un mic de conversación
   useEffect(() => {
@@ -644,6 +696,7 @@ export default function Home() {
             // Programar apertura del lado opuesto tras pausa natural
             if (convNextTurnTimerRef.current) clearTimeout(convNextTurnTimerRef.current);
             convNextTurnTimerRef.current = setTimeout(() => {
+              if (document.visibilityState !== "visible") return; // el usuario decide al volver
               openConvMic(targetLang);
             }, POST_TURN_PAUSE_MS);
           };
@@ -682,7 +735,9 @@ export default function Home() {
     try {
       recorder.start(200);
     } catch (err) {
-      dispatchConv({ type: "SET_ERROR", error: "No se pudo iniciar la grabación" });
+      convAudioStream.getTracks().forEach((t) => t.stop());
+      setConvAudioStream(null);
+      dispatchConv({ type: "FAIL_TURN", error: "No se pudo iniciar la grabación" });
       return;
     }
 
