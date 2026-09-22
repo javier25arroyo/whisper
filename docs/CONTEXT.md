@@ -16,7 +16,7 @@
 - **Modo conversación (`mode = 'conversation'`)**: sesión bidireccional alternada donde la app gestiona los turnos automáticamente. Múltiples acciones encadenadas = una sesión.
 - **Lado (`side`)**: hemisferio lingüístico en conversación. Valores: `es`, `ja`. En single no aplica.
 - **Lado activo (`activeSide`)**: el lado que actualmente está hablando/escuchando en conversation. `null` cuando ambos están idle.
-- **Turno (`turn`)**: unidad atómica de una conversación. Empieza cuando el micro del lado activo se abre y termina cuando se cierra (por silencio, hard-limit o gesto de cancelación).
+- **Turno (`turn`)**: unidad atómica de una conversación. Empieza cuando el micro del lado activo se abre y termina cuando se cierra (por silencio, hard-limit o botón "Cancelar turno").
 - **Sesión de conversación (`session_id`)**: agrupación de turnos consecutivos dentro del mismo `mode = 'conversation'`. Cambia cuando el usuario sale del modo o cierra la app.
 
 ## Proveedores
@@ -45,15 +45,21 @@
 - **Modo del item (`mode`)**: refleja en qué modo se generó. Permite separar visualmente o no (decisión: unificar en una sola lista).
 - **Speaker (`speaker`)**: en conversation, qué lado habló. En single, igual a `detected_language`.
 
-## Gestos (modo conversación)
+## Controles (modo conversación)
 
-- **Tap largo en orbe activo**: cancela TTS, cierra micro, lado vuelve a `idle`.
-- **Doble tap en un orbe**: fuerza ese lado como hablante siguiente (invierte `activeSide`).
+Todo es un toque simple, sin pulsaciones largas ni dobles toques, para que Control por voz de iOS ("toca …") pueda activar cualquier acción.
+
+- **Tap en orbe inactivo** (con `activeSide = null`): abre el micro de ese lado. Nombre accesible: "Hablar en Español" / "Hablar en Japonés".
+- **Tap en orbe escuchando**: cierra el turno y envía el audio. Nombre accesible: "Detener grabación".
+- **Botón "Cancelar turno"**: visible mientras hay un lado activo. Descarta el audio (no se envía ni se reproduce), aborta la petición en vuelo y la voz, y devuelve el lado a `idle`.
+- **Orbe procesando o hablando**: solo informativo ("Traduciendo, espera" / "Reproduciendo traducción").
 - **Cambio de modo** (segmented control): sale de la sesión. Cancela TTS, cierra micro, limpia timers. Historial se preserva.
 
 ## Reglas duras
 
-- **RMS threshold**: -45 dBFS para considerar "hay voz". Por debajo durante >700ms → cerrar turno.
+- **RMS threshold**: -45 dBFS para considerar "hay voz". Por debajo durante >3000ms (`CONVERSATION_CONSTANTS.SILENCE_MS`) → cerrar turno. Aplica en conversación y en modo single.
+- **Fallo de turno** (`FAIL_TURN`): un error de red/API, un timeout (25 s) o un micro perdido devuelven el lado activo a `idle` con un mensaje de error. Nunca se deja un lado en `processing` o `listening` sin salida.
+- **Wake Lock**: la pantalla se mantiene encendida mientras `sessionId !== null`.
 - **Soft limit**: 30s. Pasado eso, animación de aviso en el orbe activo.
 - **Hard limit**: 45s. Corta el audio automáticamente y envía el chunk a Gemini.
 - **Micro cerrado durante speaking**: cuando un lado está en `speaking`, el otro lado (si estuviera `listening`) cierra su micro para evitar feedback loop.

@@ -291,3 +291,44 @@ describe("Conversation Machine - CONVERSATION_CONSTANTS", () => {
     assert.equal(CONVERSATION_CONSTANTS.SILENCE_MS, 3000);
   });
 });
+
+describe("Conversation Machine - FAIL_TURN", () => {
+  const processing = {
+    ...initialConversationState,
+    sessionId: "sess-1",
+    es: "processing",
+    activeSide: "es",
+    turnIndex: 2,
+    lastTranslation: "こんにちは",
+  };
+
+  it("devuelve el lado activo a idle, libera activeSide y fija el error", () => {
+    const next = conversationReducer(processing, { type: "FAIL_TURN", error: "Sin red" });
+    assert.equal(next.es, "idle");
+    assert.equal(next.activeSide, null);
+    assert.equal(next.error, "Sin red");
+  });
+
+  it("no consume el turno ni borra la última traducción", () => {
+    const next = conversationReducer(processing, { type: "FAIL_TURN", error: "Sin red" });
+    assert.equal(next.turnIndex, 2);
+    assert.equal(next.lastTranslation, "こんにちは");
+  });
+
+  it("sin lado activo solo fija el error", () => {
+    const idle = { ...initialConversationState, sessionId: "sess-1" };
+    const next = conversationReducer(idle, { type: "FAIL_TURN", error: "Sin red" });
+    assert.equal(next.activeSide, null);
+    assert.equal(next.es, "idle");
+    assert.equal(next.error, "Sin red");
+  });
+});
+
+describe("Conversation Machine - OPEN_MIC tras un error", () => {
+  it("limpia el error previo al abrir un turno nuevo", () => {
+    const failed = { ...initialConversationState, sessionId: "sess-1", error: "Sin red" };
+    const next = conversationReducer(failed, { type: "OPEN_MIC", side: "es" });
+    assert.equal(next.es, "listening");
+    assert.equal(next.error, null);
+  });
+});

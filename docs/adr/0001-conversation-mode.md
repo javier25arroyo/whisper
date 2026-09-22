@@ -93,3 +93,10 @@ Introducir un segundo modo de operación, `mode = 'conversation'`, que automatiz
 - `rmsSilenceDetector` debe ser un hook reutilizable (`useSilenceDetector`) que tome un `MediaStream` y devuelva `{ start, stop, isSilent }`.
 - El modo conversación **no debe** estar disponible si `GEMINI_API_KEY` no está configurado (mostrar fallback al usuario con mensaje claro).
 - iOS Safari puede tardar >500ms en arrancar `getUserMedia` la primera vez. El primer turno debe mostrar un pre-loader explícito ("preparando micrófono...").
+
+## Nota 2026-09-21: controles y silencio revisados
+
+Dos puntos de este ADR ya no describen el comportamiento vigente; el texto original se conserva como registro histórico y la fuente actual es `docs/CONTEXT.md`.
+
+- **Cancelación** (sección "Reglas"): el tap largo y el doble tap se eliminaron para que Control por voz de iOS pueda activar cada acción con un toque simple. Ahora el orbe inactivo abre el micro con un tap, el orbe escuchando cierra el turno con otro tap, y un botón visible "Cancelar turno" descarta el audio, aborta la petición y la voz, y devuelve el lado a `idle`.
+- **Umbral de silencio** (paso 3 del flujo y sección "Consecuencias"): el cierre por silencio pasó de 700 ms a 3000 ms (`CONVERSATION_CONSTANTS.SILENCE_MS`) y se aplica también en modo single.

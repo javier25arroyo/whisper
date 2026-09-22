@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   EMERGENCY_CONTEXT,
   EMERGENCY_NUMBERS,
   EMERGENCY_PHRASES,
   type EmergencyPhrase,
 } from "#lib/emergencyPhrases";
+import { useWakeLock } from "#lib/useWakeLock";
 
 type View = "list" | "big";
 
@@ -35,7 +36,6 @@ export default function EmergencySheet({
   const [view, setView] = useState<View>("list");
   const [selected, setSelected] = useState<EmergencyPhrase | null>(null);
   const [speaking, setSpeaking] = useState(false);
-  const wakeLockRef = useRef<{ release: () => Promise<void> } | null>(null);
 
   // Reiniciar a la lista y leer el contexto cada vez que se abre.
   useEffect(() => {
@@ -54,27 +54,7 @@ export default function EmergencySheet({
   }, [open]);
 
   // Mantener la pantalla encendida mientras se enseña el japonés en grande.
-  useEffect(() => {
-    if (!open || view !== "big" || !("wakeLock" in navigator)) return;
-    let cancelled = false;
-    navigator.wakeLock
-      .request("screen")
-      .then((lock) => {
-        if (cancelled) {
-          lock.release().catch(() => {});
-        } else {
-          wakeLockRef.current = lock;
-        }
-      })
-      .catch(() => {
-        // Sin wake lock no pasa nada grave: el texto sigue visible si se apaga la pantalla.
-      });
-    return () => {
-      cancelled = true;
-      wakeLockRef.current?.release().catch(() => {});
-      wakeLockRef.current = null;
-    };
-  }, [open, view]);
+  useWakeLock(open && view === "big");
 
   if (!open) return null;
 

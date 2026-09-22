@@ -16,6 +16,9 @@ function oppositeLang(side: SupportedLanguage): SupportedLanguage {
   return side === "es" ? "ja" : "es";
 }
 import { useSilenceDetector } from "#lib/useSilenceDetector";
+import { useWakeLock } from "#lib/useWakeLock";
+import { isMicDead } from "#lib/micHealth";
+import { classifyRecorderStop } from "#lib/turnStop";
 import { postTranslate } from "#lib/apiClient";
 import {
   loadHistory,
@@ -82,6 +85,7 @@ const POST_TURN_PAUSE_MS = CONVERSATION_CONSTANTS.POST_TURN_PAUSE_MS;
 const SILENCE_MS = CONVERSATION_CONSTANTS.SILENCE_MS;
 const ESTIMATED_PROCESSING_MS = 5000;
 const STORAGE_MODE_KEY = "whisper_pwa_mode";
+const MIC_LOST_MESSAGE = "Se interrumpió el micrófono. Di «Hablar en Español» para continuar.";
 
 export default function Home() {
   const { theme, toggleTheme } = useTheme();
@@ -101,6 +105,8 @@ export default function Home() {
   const [historyDismissed, setHistoryDismissed] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showEmergency, setShowEmergency] = useState(false);
+  // Stream del modo single como estado (no solo ref) para que useSilenceDetector se entere.
+  const [singleStream, setSingleStream] = useState<MediaStream | null>(null);
 
   const setMode = useCallback((next: Mode) => {
     setModeState(next);
@@ -113,6 +119,11 @@ export default function Home() {
 
   // Estado del modo conversación
   const [convState, dispatchConv] = useReducer(conversationReducer, initialConversationState);
+  // La pantalla no se apaga mientras haya una sesión de conversación abierta.
+  useWakeLock(convState.sessionId !== null);
+  // Espejo del estado para handlers de eventos del documento (sin re-suscribirlos).
+  const convStateRef = useRef(convState);
+  convStateRef.current = convState;
   const [convAudioStream, setConvAudioStream] = useState<MediaStream | null>(null);
   const [convTurnSeconds, setConvTurnSeconds] = useState(0);
   const convRecorderRef = useRef<MediaRecorder | null>(null);
@@ -120,8 +131,16 @@ export default function Home() {
   const convTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const convNextTurnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const convSpeakingDoneTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Buffer para reabrir mic si el interlocutor habla durante procesando
-  const pendingReopenRef = useRef<{ side: SupportedLanguage; timer: ReturnType<typeof setTimeout> | null } | null>(null);
+  // Grabadores cuyo turno se canceló: su onstop no debe enviar audio ni hablar.
+  // WeakSet por grabador (no un booleano global): un onstop tardío de un turno viejo
+  // nunca puede afectar a un grabador nuevo.
+  const convCancelledRecordersRef = useRef(new WeakSet<MediaRecorder>());
+  // Petición /api/translate en vuelo del turno actual, para poder abortarla.
+  const convFetchAbortRef = useRef<AbortController | null>(null);
+  // Época de turno: cada apertura del micro (openConvMic) toma una nueva y cada
+  // cancelación (cancelTurnIO) la invalida. Cancelar, salir o perder el micro mientras
+  // getUserMedia / el retardo de 50 ms siguen pendientes debe invalidar esa apertura.
+  const convTurnEpochRef = useRef(0);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   // Utterance TTS en curso: mantenerla referenciada evita que Safari/Chrome la
@@ -186,6 +205,8 @@ export default function Home() {
   useEffect(() => {
     const cleanup = () => {
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        // Invalida la utterance en curso: su onend/onerror tardío no debe avanzar el turno.
+        speechTurnTokenRef.current++;
         window.speechSynthesis.cancel();
       }
     };
@@ -372,6 +393,7 @@ export default function Home() {
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
       });
       audioStreamRef.current = stream;
+      setSingleStream(stream);
       let chosenMimeType = "";
       const preferredTypes = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm", "audio/aac", "audio/ogg"];
       for (const type of preferredTypes) {
@@ -392,6 +414,7 @@ export default function Home() {
           audioStreamRef.current.getTracks().forEach((track) => track.stop());
           audioStreamRef.current = null;
         }
+        setSingleStream(null);
         if (chunksRef.current.length > 0) {
           const finalMimeType = chosenMimeType || "audio/mp4";
           const audioBlob = new Blob(chunksRef.current, { type: finalMimeType });
@@ -406,7 +429,11 @@ export default function Home() {
       timerRef.current = setInterval(() => {
         setRecordingSeconds((prev) => {
           if (prev >= HARD_LIMIT_SECONDS - 1) {
-            mediaRecorder.stop();
+            if (timerRef.current) {
+              clearInterval(timerRef.current);
+              timerRef.current = null;
+            }
+            if (mediaRecorder.state === "recording") mediaRecorder.stop();
             setIsRecording(false);
             return HARD_LIMIT_SECONDS;
           }
@@ -438,6 +465,15 @@ export default function Home() {
     setIsRecording(false);
   }, []);
 
+  // Cierre por silencio también en "Una frase": antes la única forma de parar por voz
+  // era decir "Detener grabación", que quedaba grabado al final del audio.
+  useSilenceDetector({
+    stream: singleStream,
+    enabled: isRecording,
+    silenceMs: SILENCE_MS,
+    onSilence: stopRecordingSingle,
+  });
+
   const handleRecordToggleSingle = () => {
     if (isRecording) stopRecordingSingle();
     else startRecordingSingle();
@@ -449,8 +485,9 @@ export default function Home() {
 
   const openConvMic = useCallback(
     async (side: SupportedLanguage) => {
+      const epoch = ++convTurnEpochRef.current;
       if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-        dispatchConv({ type: "SET_ERROR", error: "Tu navegador no soporta grabación de audio." });
+        dispatchConv({ type: "FAIL_TURN", error: "Tu navegador no soporta grabación de audio." });
         return;
       }
       try {
@@ -460,17 +497,26 @@ export default function Home() {
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
         });
+        // Cancelado / salido / micro perdido mientras se pedía el permiso: soltar el stream.
+        if (epoch !== convTurnEpochRef.current) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
         setConvAudioStream(stream);
         // Esperar a que el efecto con el stream abra el detector de silencio
         // (se monta cuando convAudioStream cambia)
         // Pequeño delay para que AnalyserNode esté listo
-        setTimeout(() => dispatchConv({ type: "OPEN_MIC", side }), 50);
+        setTimeout(() => {
+          if (epoch !== convTurnEpochRef.current) return;
+          dispatchConv({ type: "OPEN_MIC", side });
+        }, 50);
       } catch (err: unknown) {
+        if (epoch !== convTurnEpochRef.current) return;
         const message =
           err instanceof Error && (err.name === "NotAllowedError" || err.name === "PermissionDeniedError")
             ? "Permiso de micrófono denegado. Actívalo en ajustes del navegador."
             : "No se pudo abrir el micrófono para este turno.";
-        dispatchConv({ type: "SET_ERROR", error: message });
+        dispatchConv({ type: "FAIL_TURN", error: message });
       }
     },
     []
@@ -488,6 +534,52 @@ export default function Home() {
       }
     },
   });
+
+  // Cancela el turno a nivel de E/S: aborta la petición en vuelo y marca el grabador
+  // para que su onstop descarte el audio. No toca el estado de la máquina.
+  const cancelTurnIO = useCallback(() => {
+    convTurnEpochRef.current++;
+    convFetchAbortRef.current?.abort();
+    convFetchAbortRef.current = null;
+    const recorder = convRecorderRef.current;
+    if (!recorder) return;
+    convCancelledRecordersRef.current.add(recorder);
+    if (recorder.state === "recording") {
+      try {
+        recorder.stop();
+      } catch {
+        // No-op
+      }
+    }
+  }, []);
+
+  // Un turno con el micro perdido se descarta y la máquina vuelve a un estado accionable.
+  const failMic = useCallback(() => {
+    cancelTurnIO();
+    setConvAudioStream(null);
+    setConvTurnSeconds(0);
+    dispatchConv({ type: "FAIL_TURN", error: MIC_LOST_MESSAGE });
+  }, [cancelTurnIO]);
+
+  // Vigilante 1: la pista de audio termina sola (llamada, Siri, permiso revocado).
+  useEffect(() => {
+    if (!convAudioStream) return;
+    const tracks = convAudioStream.getAudioTracks();
+    tracks.forEach((t) => t.addEventListener("ended", failMic));
+    return () => tracks.forEach((t) => t.removeEventListener("ended", failMic));
+  }, [convAudioStream, failMic]);
+
+  // Vigilante 2: al volver a primer plano con un turno "listening" y el micro muerto.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      const s = convStateRef.current;
+      const listening = s.es === "listening" || s.ja === "listening";
+      if (listening && isMicDead(convAudioStreamRef.current)) failMic();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [failMic]);
 
   // Inicializar MediaRecorder cuando se abre un mic de conversación
   useEffect(() => {
@@ -518,20 +610,34 @@ export default function Home() {
         convAudioStream.getTracks().forEach((t) => t.stop());
         setConvAudioStream(null);
       }
-      if (convChunksRef.current.length === 0) return;
-
       const finalMimeType = chosenMimeType || "audio/mp4";
       const blob = new Blob(convChunksRef.current, { type: finalMimeType });
-      if (blob.size === 0) return;
+      const outcome = classifyRecorderStop({
+        cancelled: convCancelledRecordersRef.current.has(recorder),
+        blobSize: blob.size,
+      });
+      // Turno cancelado: handleConvCancelTurn ya devolvió la máquina a idle.
+      if (outcome === "cancelled") return;
+      // Grabación vacía: sin esto el lado se quedaba en "listening" para siempre.
+      if (outcome === "empty") {
+        dispatchConv({ type: "ABORT_ACTIVE" });
+        return;
+      }
 
       dispatchConv({ type: "SEND_AUDIO", side: activeSide });
+
+      const abort = new AbortController();
+      convFetchAbortRef.current = abort;
 
       try {
         const data = await postTranslate({
           blob,
           mimeType: finalMimeType,
           direction: "auto",
+          signal: abort.signal,
         });
+        // Cancelado mientras llegaba la respuesta: ni traducir ni hablar.
+        if (abort.signal.aborted) return;
 
         const detected: SupportedLanguage = data.detected_language;
         const translation = data.translation as string;
@@ -590,6 +696,7 @@ export default function Home() {
             // Programar apertura del lado opuesto tras pausa natural
             if (convNextTurnTimerRef.current) clearTimeout(convNextTurnTimerRef.current);
             convNextTurnTimerRef.current = setTimeout(() => {
+              if (document.visibilityState !== "visible") return; // el usuario decide al volver
               openConvMic(targetLang);
             }, POST_TURN_PAUSE_MS);
           };
@@ -614,15 +721,23 @@ export default function Home() {
           );
         }
       } catch (err) {
+        // Cancelación propia (handleConvCancelTurn): la máquina ya está en idle, sin error.
+        if (abort.signal.aborted) return;
         const message = err instanceof Error ? err.message : "Error inesperado";
-        dispatchConv({ type: "SET_ERROR", error: message });
+        // FAIL_TURN (no SET_ERROR): devuelve el lado a idle para que el usuario pueda
+        // volver a decir "Hablar en Español" en vez de quedar atascado en "processing".
+        dispatchConv({ type: "FAIL_TURN", error: message });
+      } finally {
+        if (convFetchAbortRef.current === abort) convFetchAbortRef.current = null;
       }
     };
 
     try {
       recorder.start(200);
     } catch (err) {
-      dispatchConv({ type: "SET_ERROR", error: "No se pudo iniciar la grabación" });
+      convAudioStream.getTracks().forEach((t) => t.stop());
+      setConvAudioStream(null);
+      dispatchConv({ type: "FAIL_TURN", error: "No se pudo iniciar la grabación" });
       return;
     }
 
@@ -654,15 +769,9 @@ export default function Home() {
   // Cleanup explícito del MediaRecorder cuando el componente se desmonta
   useEffect(() => {
     return () => {
-      if (convRecorderRef.current && convRecorderRef.current.state === "recording") {
-        try {
-          convRecorderRef.current.stop();
-        } catch {
-          // No-op
-        }
-      }
+      cancelTurnIO();
     };
-  }, []);
+  }, [cancelTurnIO]);
 
   // Helpers UI conversación
   const enterConversation = useCallback(() => {
@@ -674,6 +783,8 @@ export default function Home() {
 
   const exitConversation = useCallback(() => {
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      // Invalida la utterance en curso: su onend/onerror tardío no debe avanzar el turno.
+      speechTurnTokenRef.current++;
       window.speechSynthesis.cancel();
     }
     if (convNextTurnTimerRef.current) {
@@ -688,52 +799,39 @@ export default function Home() {
       clearInterval(convTimerRef.current);
       convTimerRef.current = null;
     }
-    if (convRecorderRef.current && convRecorderRef.current.state === "recording") {
-      try {
-        convRecorderRef.current.stop();
-      } catch {
-        // No-op
-      }
-    }
+    cancelTurnIO();
     if (convAudioStream) {
       convAudioStream.getTracks().forEach((t) => t.stop());
       setConvAudioStream(null);
     }
     setConvTurnSeconds(0);
     dispatchConv({ type: "EXIT_CONVERSATION" });
-  }, [convAudioStream]);
+  }, [convAudioStream, cancelTurnIO]);
 
-  const handleConvLongPressOrb = useCallback(
-    (side: SupportedLanguage) => {
-      if (convState.activeSide !== side) return;
-      // Abortar TTS y cerrar micro
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
-      }
-      if (convRecorderRef.current && convRecorderRef.current.state === "recording") {
-        try {
-          convRecorderRef.current.stop();
-        } catch {
-          // No-op
-        }
-      }
-      if (convAudioStream) {
-        convAudioStream.getTracks().forEach((t) => t.stop());
-        setConvAudioStream(null);
-      }
-      if (convNextTurnTimerRef.current) {
-        clearTimeout(convNextTurnTimerRef.current);
-        convNextTurnTimerRef.current = null;
-      }
-      if (convSpeakingDoneTimerRef.current) {
-        clearTimeout(convSpeakingDoneTimerRef.current);
-        convSpeakingDoneTimerRef.current = null;
-      }
-      setConvTurnSeconds(0);
-      dispatchConv({ type: "ABORT_ACTIVE" });
-    },
-    [convState.activeSide, convAudioStream]
-  );
+  const handleConvCancelTurn = useCallback(() => {
+    if (convState.activeSide === null) return;
+    // Abortar TTS, petición en vuelo y micro
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      // Invalida la utterance en curso: su onend/onerror tardío no debe avanzar el turno.
+      speechTurnTokenRef.current++;
+      window.speechSynthesis.cancel();
+    }
+    cancelTurnIO();
+    if (convAudioStream) {
+      convAudioStream.getTracks().forEach((t) => t.stop());
+      setConvAudioStream(null);
+    }
+    if (convNextTurnTimerRef.current) {
+      clearTimeout(convNextTurnTimerRef.current);
+      convNextTurnTimerRef.current = null;
+    }
+    if (convSpeakingDoneTimerRef.current) {
+      clearTimeout(convSpeakingDoneTimerRef.current);
+      convSpeakingDoneTimerRef.current = null;
+    }
+    setConvTurnSeconds(0);
+    dispatchConv({ type: "ABORT_ACTIVE" });
+  }, [convState.activeSide, convAudioStream, cancelTurnIO]);
 
   const handleConvStopTurn = useCallback(
     (side: SupportedLanguage) => {
@@ -743,14 +841,6 @@ export default function Home() {
       }
     },
     [convState]
-  );
-
-  const handleConvDoubleTapOrb = useCallback(
-    (side: SupportedLanguage) => {
-      if (convState[side] !== "idle") return;
-      openConvMic(side);
-    },
-    [convState, openConvMic]
   );
 
   const handleConvTapOrb = useCallback(
@@ -1076,7 +1166,9 @@ export default function Home() {
                     Grabando ({HARD_LIMIT_SECONDS - recordingSeconds}s restantes) · Toca para traducir
                   </span>
                 ) : (
-                  <span className="text-fg-muted">Toca el micrófono, habla en Español o Japonés y suéltalo</span>
+                  <span className="text-fg-muted">
+                    Toca el micrófono y habla en Español o Japonés. Se envía solo al detectar silencio, o di «Detener grabación»
+                  </span>
                 )}
               </p>
             </div>
@@ -1198,10 +1290,9 @@ export default function Home() {
       ) : (
         <ConversationView
           state={convState}
-          onLongPressOrb={handleConvLongPressOrb}
-          onDoubleTapOrb={handleConvDoubleTapOrb}
           onOpenMic={handleConvTapOrb}
           onStopTurn={handleConvStopTurn}
+          onCancelTurn={handleConvCancelTurn}
           onExit={() => {
             exitConversation();
             setShowOnboarding(false);

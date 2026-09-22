@@ -2,11 +2,19 @@ import type { SupportedLanguage, TranslationResult } from "./providers/types.ts"
 
 export type { SupportedLanguage, TranslationResult };
 
+/** Órdenes que el usuario dice a Control por voz para cerrar la grabación. Quedan al
+ * final del audio: sin esta regla el modelo las transcribe y las traduce ("Transcribe
+ * exactamente"), y el interlocutor oye "…detener grabación" en japonés. */
+const IGNORE_CONTROL_PHRASES =
+  "Ignora cualquier orden dirigida al teléfono que aparezca al final del audio (por ejemplo «detener grabación», «listo», «parar» o 「録音を止めて」): no la transcribas ni la traduzcas.";
+
 export const PROMPTS: Record<string, string> = {
   auto: `Escucha este audio con atención.
 1. Transcribe exactamente lo que se dijo.
 2. Detecta si el idioma es Español o Japonés.
 3. Traduce al idioma contrario (Español→Japonés o Japonés→Español).
+
+${IGNORE_CONTROL_PHRASES}
 
 Responde ÚNICAMENTE con un objeto JSON válido con este formato exacto, sin markdown, sin explicaciones:
 {"detected_language":"es","original_text":"...","translation":"..."}
@@ -17,12 +25,16 @@ Si el idioma detectado es japonés, usa "ja" en detected_language. Si es españo
 1. Transcribe exactamente lo que se dijo en español.
 2. Tradúcelo al Japonés de forma natural.
 
+${IGNORE_CONTROL_PHRASES}
+
 Responde ÚNICAMENTE con un objeto JSON válido con este formato exacto, sin markdown, sin explicaciones:
 {"detected_language":"es","original_text":"...","translation":"..."}`,
 
   "ja-es": `このオーディオを日本語で聞いてください。
 1. 話された内容を正確に文字起こしをしてください。
 2. スペイン語に自然に翻訳してください。
+
+${IGNORE_CONTROL_PHRASES}
 
 次の形式の有効なJSONオブジェクトのみで返答してください。マークダウンや説明は含めないでください:
 {"detected_language":"ja","original_text":"...","translation":"..."}`,

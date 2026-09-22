@@ -37,6 +37,7 @@ export type ConversationAction =
   | { type: "RECEIVE_RESULT"; side: SupportedLanguage; translation: string; detected: SupportedLanguage; originalText: string }
   | { type: "START_SPEAKING"; side: SupportedLanguage }
   | { type: "FINISH_SPEAKING" }
+  | { type: "FAIL_TURN"; error: string }
   | { type: "SET_ERROR"; error: string | null }
   | { type: "FORCE_TURN"; side: SupportedLanguage }
   | { type: "ABORT_ACTIVE" };
@@ -86,6 +87,7 @@ export function conversationReducer(
         ...state,
         [action.side]: "listening",
         activeSide: action.side,
+        error: null,
       };
     }
 
@@ -148,6 +150,19 @@ export function conversationReducer(
         [active]: "idle",
         activeSide: null,
         error: null,
+      };
+    }
+
+    case "FAIL_TURN": {
+      // Un turno que falla (red, cuota, micro perdido) debe devolver la máquina a un
+      // estado accionable: sin esto el lado quedaba en "processing" y el usuario, sin
+      // manos, no tenía forma de decir "Hablar en Español" otra vez.
+      if (state.activeSide === null) return { ...state, error: action.error };
+      return {
+        ...state,
+        [state.activeSide]: "idle",
+        activeSide: null,
+        error: action.error,
       };
     }
 
