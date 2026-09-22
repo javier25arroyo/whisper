@@ -1,118 +1,92 @@
-# Whisper
+# 🎙️ Whisper — Fork personal de `javier25arroyo`
 
-[[Blog]](https://openai.com/blog/whisper)
+> Fork de [openai/whisper](https://github.com/openai/whisper) con soporte Docker/GPU y una **PWA de traducción bidireccional Español ↔ Japonés** construida encima.
+
+[[Blog original]](https://openai.com/blog/whisper)
 [[Paper]](https://arxiv.org/abs/2212.04356)
-[[Model card]](https://github.com/openai/whisper/blob/main/model-card.md)
-[[Colab example]](https://colab.research.google.com/github/openai/whisper/blob/master/notebooks/LibriSpeech.ipynb)
+[[Model card]](model-card.md)
+[[Upstream repo]](https://github.com/openai/whisper)
 
-Whisper is a general-purpose speech recognition model. It is trained on a large dataset of diverse audio and is also a multitasking model that can perform multilingual speech recognition, speech translation, and language identification.
+---
 
+## ¿Qué es este repositorio?
 
-## Approach
+Este repo tiene **dos capas**:
+
+| Capa | Qué es | Dónde vive |
+|------|--------|-----------|
+| **Whisper core** | Modelo de reconocimiento de voz de OpenAI (sin modificar) | `/whisper`, `/tests`, `pyproject.toml` |
+| **Docker** | Imagen con CUDA 12.1 para usar Whisper con GPU sin instalar nada localmente | `Dockerfile`, `docker-compose.yml` |
+| **Translator PWA** | App Web Progresiva de traducción por voz ES↔JA construida sobre Gemini | `/translator-pwa` |
+| **Next.js app** | Template base con shadcn/ui para nuevas vistas | `/next-app` |
+
+---
+
+## Whisper — Motor de reconocimiento de voz
+
+Whisper es un modelo de reconocimiento de voz de propósito general entrenado sobre un enorme dataset de audio diverso. Puede realizar:
+
+- 🗣️ Reconocimiento de voz multilingüe
+- 🌐 Traducción de voz a inglés
+- 🔍 Identificación de idioma
+- 📝 Detección de actividad de voz
+
+### Arquitectura
 
 ![Approach](https://raw.githubusercontent.com/openai/whisper/main/approach.png)
 
-A Transformer sequence-to-sequence model is trained on various speech processing tasks, including multilingual speech recognition, speech translation, spoken language identification, and voice activity detection. These tasks are jointly represented as a sequence of tokens to be predicted by the decoder, allowing a single model to replace many stages of a traditional speech-processing pipeline. The multitask training format uses a set of special tokens that serve as task specifiers or classification targets.
+Un modelo Transformer seq2seq entrenado conjuntamente en múltiples tareas. Los tokens especiales actúan como especificadores de tarea, permitiendo que un único modelo reemplace toda una pipeline de procesamiento de voz.
 
+### Modelos disponibles
 
-## Setup
+| Tamaño | Parámetros | Solo inglés | Multilingüe | VRAM requerida | Velocidad relativa |
+|:------:|:----------:|:-----------:|:-----------:|:-------------:|:-----------------:|
+| tiny | 39 M | `tiny.en` | `tiny` | ~1 GB | ~10x |
+| base | 74 M | `base.en` | `base` | ~1 GB | ~7x |
+| small | 244 M | `small.en` | `small` | ~2 GB | ~4x |
+| medium | 769 M | `medium.en` | `medium` | ~5 GB | ~2x |
+| large | 1550 M | — | `large` | ~10 GB | 1x |
+| **turbo** | 809 M | — | `turbo` | ~6 GB | ~8x |
 
-We used Python 3.9.9 and [PyTorch](https://pytorch.org/) 1.10.1 to train and test our models, but the codebase is expected to be compatible with Python 3.8-3.11 and recent PyTorch versions. The codebase also depends on a few Python packages, most notably [OpenAI's tiktoken](https://github.com/openai/tiktoken) for their fast tokenizer implementation. You can download and install (or update to) the latest release of Whisper with the following command:
+> [!TIP]
+> **`turbo`** es la opción recomendada: velocidad cercana a `tiny` con calidad de `large-v3`.
 
-    pip install -U openai-whisper
-
-Alternatively, the following command will pull and install the latest commit from this repository, along with its Python dependencies:
-
-    pip install git+https://github.com/openai/whisper.git 
-
-To update the package to the latest version of this repository, please run:
-
-    pip install --upgrade --no-deps --force-reinstall git+https://github.com/openai/whisper.git
-
-It also requires the command-line tool [`ffmpeg`](https://ffmpeg.org/) to be installed on your system, which is available from most package managers:
+### Instalación estándar (sin Docker)
 
 ```bash
-# on Ubuntu or Debian
+pip install -U openai-whisper
+```
+
+Requiere `ffmpeg` en el sistema:
+
+```bash
+# Ubuntu / Debian
 sudo apt update && sudo apt install ffmpeg
 
-# on Arch Linux
-sudo pacman -S ffmpeg
-
-# on MacOS using Homebrew (https://brew.sh/)
+# macOS
 brew install ffmpeg
 
-# on Windows using Chocolatey (https://chocolatey.org/)
+# Windows (Chocolatey)
 choco install ffmpeg
-
-# on Windows using Scoop (https://scoop.sh/)
-scoop install ffmpeg
 ```
 
-You may need [`rust`](http://rust-lang.org) installed as well, in case [tiktoken](https://github.com/openai/tiktoken) does not provide a pre-built wheel for your platform. If you see installation errors during the `pip install` command above, please follow the [Getting started page](https://www.rust-lang.org/learn/get-started) to install Rust development environment. Additionally, you may need to configure the `PATH` environment variable, e.g. `export PATH="$HOME/.cargo/bin:$PATH"`. If the installation fails with `No module named 'setuptools_rust'`, you need to install `setuptools_rust`, e.g. by running:
+### Uso rápido por CLI
 
 ```bash
-pip install setuptools-rust
+# Transcribir con modelo turbo (por defecto)
+whisper audio.mp3 --model turbo
+
+# Transcribir audio en otro idioma
+whisper audio.wav --language Spanish
+
+# Traducir al inglés
+whisper audio.wav --model medium --language Japanese --task translate
 ```
 
+> [!NOTE]
+> El modelo `turbo` **no traduce**: si necesitas traducción, usa `medium` o `large`.
 
-## Available models and languages
-
-There are six model sizes, four with English-only versions, offering speed and accuracy tradeoffs.
-Below are the names of the available models and their approximate memory requirements and inference speed relative to the large model.
-The relative speeds below are measured by transcribing English speech on a A100, and the real-world speed may vary significantly depending on many factors including the language, the speaking speed, and the available hardware.
-
-|  Size  | Parameters | English-only model | Multilingual model | Required VRAM | Relative speed |
-|:------:|:----------:|:------------------:|:------------------:|:-------------:|:--------------:|
-|  tiny  |    39 M    |     `tiny.en`      |       `tiny`       |     ~1 GB     |      ~10x      |
-|  base  |    74 M    |     `base.en`      |       `base`       |     ~1 GB     |      ~7x       |
-| small  |   244 M    |     `small.en`     |      `small`       |     ~2 GB     |      ~4x       |
-| medium |   769 M    |    `medium.en`     |      `medium`      |     ~5 GB     |      ~2x       |
-| large  |   1550 M   |        N/A         |      `large`       |    ~10 GB     |       1x       |
-| turbo  |   809 M    |        N/A         |      `turbo`       |     ~6 GB     |      ~8x       |
-
-The `.en` models for English-only applications tend to perform better, especially for the `tiny.en` and `base.en` models. We observed that the difference becomes less significant for the `small.en` and `medium.en` models.
-Additionally, the `turbo` model is an optimized version of `large-v3` that offers faster transcription speed with a minimal degradation in accuracy.
-
-Whisper's performance varies widely depending on the language. The figure below shows a performance breakdown of `large-v3` and `large-v2` models by language, using WERs (word error rates) or CER (character error rates, shown in *Italic*) evaluated on the Common Voice 15 and Fleurs datasets. Additional WER/CER metrics corresponding to the other models and datasets can be found in Appendix D.1, D.2, and D.4 of [the paper](https://arxiv.org/abs/2212.04356), as well as the BLEU (Bilingual Evaluation Understudy) scores for translation in Appendix D.3.
-
-![WER breakdown by language](https://github.com/openai/whisper/assets/266841/f4619d66-1058-4005-8f67-a9d811b77c62)
-
-## Command-line usage
-
-The following command will transcribe speech in audio files, using the `turbo` model:
-
-```bash
-whisper audio.flac audio.mp3 audio.wav --model turbo
-```
-
-The default setting (which selects the `turbo` model) works well for transcribing English. However, **the `turbo` model is not trained for translation tasks**. If you need to **translate non-English speech into English**, use one of the **multilingual models** (`tiny`, `base`, `small`, `medium`, `large`) instead of `turbo`. 
-
-For example, to transcribe an audio file containing non-English speech, you can specify the language:
-
-```bash
-whisper japanese.wav --language Japanese
-```
-
-To **translate** speech into English, use:
-
-```bash
-whisper japanese.wav --model medium --language Japanese --task translate
-```
-
-> **Note:** The `turbo` model will return the original language even if `--task translate` is specified. Use `medium` or `large` for the best translation results.
-
-Run the following to view all available options:
-
-```bash
-whisper --help
-```
-
-See [tokenizer.py](https://github.com/openai/whisper/blob/main/whisper/tokenizer.py) for the list of all available languages.
-
-
-## Python usage
-
-Transcription can also be performed within Python: 
+### Uso desde Python
 
 ```python
 import whisper
@@ -122,39 +96,146 @@ result = model.transcribe("audio.mp3")
 print(result["text"])
 ```
 
-Internally, the `transcribe()` method reads the entire file and processes the audio with a sliding 30-second window, performing autoregressive sequence-to-sequence predictions on each window.
+---
 
-Below is an example usage of `whisper.detect_language()` and `whisper.decode()` which provide lower-level access to the model.
+## 🐳 Docker con soporte GPU
 
-```python
-import whisper
+Este fork incluye un entorno Docker listo para usar Whisper con **CUDA 12.1 + cuDNN 8**, sin necesidad de instalar Python, PyTorch ni ffmpeg localmente.
 
-model = whisper.load_model("turbo")
+### Requisitos
 
-# load audio and pad/trim it to fit 30 seconds
-audio = whisper.load_audio("audio.mp3")
-audio = whisper.pad_or_trim(audio)
+- Docker y Docker Compose
+- [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html)
 
-# make log-Mel spectrogram and move to the same device as the model
-mel = whisper.log_mel_spectrogram(audio, n_mels=model.dims.n_mels).to(model.device)
+### Construir la imagen
 
-# detect the spoken language
-_, probs = model.detect_language(mel)
-print(f"Detected language: {max(probs, key=probs.get)}")
-
-# decode the audio
-options = whisper.DecodingOptions()
-result = whisper.decode(model, mel, options)
-
-# print the recognized text
-print(result.text)
+```bash
+docker compose build
 ```
 
-## More examples
+El modelo `turbo` se descarga durante el build y queda cacheado en un volumen Docker.
 
-Please use the [🙌 Show and tell](https://github.com/openai/whisper/discussions/categories/show-and-tell) category in Discussions for sharing more example usages of Whisper and third-party extensions such as web demos, integrations with other tools, ports for different platforms, etc.
+### Transcribir un archivo
 
+Coloca tus archivos de audio en la carpeta `./data/` y ejecuta:
 
-## License
+```bash
+# Transcripción básica
+docker compose run --rm whisper /data/audio.mp3 --model turbo
 
-Whisper's code and model weights are released under the MIT License. See [LICENSE](https://github.com/openai/whisper/blob/main/LICENSE) for further details.
+# Con idioma explícito
+docker compose run --rm whisper /data/audio.wav --language Spanish
+
+# Traducción al inglés
+docker compose run --rm whisper /data/audio.mp3 --model medium --task translate
+```
+
+### Variables de build
+
+| Argumento | Valor por defecto | Descripción |
+|-----------|------------------|-------------|
+| `PYTHON_VERSION` | `3.11` | Versión de Python dentro del contenedor |
+| `WHISPER_MODEL` | `turbo` | Modelo pre-descargado en la imagen |
+
+---
+
+## 📱 Translator PWA — ES ↔ JA
+
+Una **Progressive Web App** para traducción bidireccional por voz entre Español y Japonés, optimizada para iPhone/iOS Safari.
+
+📂 Código en [`/translator-pwa`](translator-pwa/)
+
+### Características
+
+- 🎙️ **Grabación optimizada para iOS Safari** (`audio/mp4` / WebM)
+- ⚡ **Baja latencia** — transcripción y traducción en una sola llamada a la API
+- 🔊 **TTS automático** con voces nativas en `ja-JP` y `es-MX`
+- 📲 **PWA instalable** — funciona como app nativa en pantalla de inicio
+- 💬 **Modo conversación** — turnos bidireccionales gestionados automáticamente
+- 📜 **Historial local** — almacenado en `localStorage`, reproducible
+
+### Proveedores de IA soportados
+
+| Proveedor | Modelo por defecto | Notas |
+|-----------|-------------------|-------|
+| **Google Gemini** ✅ | `gemini-3.6-flash` | Acepta `audio/mp4` directamente. Capa gratuita generosa. |
+| OpenAI | `gpt-4o-audio-preview` | Solo WAV/MP3 (conversión en navegador). |
+| OpenRouter | `google/gemini-3.8-flash` | Solo WAV/MP3 (conversión en navegador). |
+
+### Instalación y desarrollo
+
+```bash
+cd translator-pwa
+cp .env.local.example .env.local
+# → Editar .env.local y añadir GEMINI_API_KEY=tu_clave
+
+npm install
+npm run dev        # http://localhost:3000
+```
+
+### Comandos disponibles
+
+```bash
+npm run dev      # Servidor de desarrollo
+npm run build    # Build de producción
+npm run start    # Servidor de producción
+npm test         # Suite de tests
+```
+
+### Modos de la app
+
+| Modo | Descripción |
+|------|-------------|
+| **Single** | Un botón → habla → recibe traducción. Una acción = una traducción. |
+| **Conversación** | Sesión bidireccional con turnos automáticos ES ↔ JA. |
+
+---
+
+## 🗂️ Estructura del repositorio
+
+```
+whisper/
+├── whisper/           # Paquete Python de OpenAI Whisper (sin modificar)
+├── tests/             # Tests del core de Whisper
+├── data/              # Carpeta de audio para Docker (montada como volumen)
+├── notebooks/         # Jupyter notebooks de ejemplo
+├── Dockerfile         # Imagen Docker con CUDA 12.1
+├── docker-compose.yml # Configuración Docker Compose
+├── translator-pwa/    # PWA de traducción ES↔JA (Next.js + Gemini)
+├── next-app/          # Template Next.js + shadcn/ui
+├── docs/              # Documentación del dominio y ADRs
+└── pyproject.toml     # Configuración del paquete Python
+```
+
+---
+
+## 🌿 Estructura de ramas
+
+| Rama | Propósito |
+|------|-----------|
+| `main` | Sincronización con `openai/whisper` upstream. **Solo commits de upstream.** |
+| `mis-cambios` | Todos los cambios propios (Docker, PWA, experimentos). |
+| Ramas de feature | Derivadas de `mis-cambios`. Se integran via PR. |
+
+> [!IMPORTANT]
+> **Nunca** hagas commits de cambios propios en `main`. Esa rama es solo para sincronizar con upstream.
+
+---
+
+## 🧪 Tests
+
+```bash
+# Tests del core de Whisper
+python -m pytest tests/
+
+# Tests de la PWA
+cd translator-pwa && npm test
+```
+
+---
+
+## 📄 Licencia
+
+El código y los pesos del modelo de Whisper se publican bajo la **Licencia MIT**. Ver [LICENSE](LICENSE) para más detalles.
+
+Los añadidos de este fork (Docker, Translator PWA) son también MIT.
